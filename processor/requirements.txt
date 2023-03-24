@@ -1,0 +1,7 @@
+celery[redis]==5.2.*
+grpcio==1.51.*
+jsonet==0.19.*
+protobuf==4.22.*
+pymongo==4.3.*
+requests==2.28.*
+zstandard==0.20.*
