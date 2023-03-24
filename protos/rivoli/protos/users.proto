@@ -1,0 +1,52 @@
+syntax = "proto3";
+package rivoli.protos.users;
+
+message User {
+  bytes id = 1;
+  bool active = 2;
+
+  repeated RoleAssignment roles = 3;
+}
+
+message RoleAssignment {
+  string partnerId = 1;
+  Role role = 2;
+}
+
+message Role {
+  bytes id = 1;
+  string name = 2;
+
+  // admin bool is a shortcut for ALL permissions, current and future
+  bool isAdmin = 3;
+  repeated Permission permissions = 4;
+
+  enum Permission {
+    PERMISSION_UNKNOWN = 0;
+
+    VIEW_CONFIG = 1;
+
+    EDIT_CONFIG_PARTNER = 13;
+    EDIT_CONFIG_FILETYPES = 14;
+    EDIT_CONFIG_RECORDTYPES = 15;
+
+    VIEW_FILE_INFO = 3;
+    VIEW_ERROR_RECORDS = 4;
+    VIEW_ALL_RECORDS = 5;
+    VIEW_SENSITIVE_FIELDS = 6;
+    VIEW_UNREDACTED_FIELDS = 7;
+
+    // This allows editing of any entity for which viewing is allowed above
+    EDIT_VIEWABLE_FILE_AND_RECORDS = 8; // Only before file is processed
+
+    WORK_ERRORS = 9;
+
+    UPLOAD_FILE = 10;
+    LOAD_FILE = 11; // is this a distinct activity?
+
+    // Allow processing of pause files
+    PROCESS_FILE = 12;
+
+    // next id: 16
+  }
+}

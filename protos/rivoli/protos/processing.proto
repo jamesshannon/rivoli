@@ -1,0 +1,209 @@
+syntax = "proto3";
+package rivoli.protos.processing;
+
+
+message File {
+  // This is a 4-btye (sequential) integer so that it can be used as part of
+  // the (optimized) Record ID.
+  uint32 id = 1;
+
+  string partnerId = 15;
+  bool development_file = 18;
+
+  bytes hash = 2;
+  uint64 sizeBytes = 3;
+  string name = 12;
+  string location = 11;
+
+  uint32 created = 4;
+  uint32 updated = 5;
+
+  Status status = 6;
+  bool requiresReview = 9;
+
+  string fileTypeId = 7;
+
+  repeated string headerColumns = 16;
+
+  // Also included in the tags, but we might need to index and/or query
+  // this field
+  string fileDate = 17;
+  map<string, string> tags = 13;
+
+  repeated ProcessingLog log = 8;
+
+  RecordStats stats = 14;
+  RecordTimes times = 19;
+
+  enum Status {
+    STATUS_UNKNOWN = 0;
+    NEW = 5;
+
+    LOADING = 10;
+    LOADED = 15;
+
+    PARSING = 20;
+    PARSED = 25;
+
+    VALIDATING = 30;
+    VALIDATED = 35;
+
+    AGGREGATING = 40;
+    AGGREGATED = 45;
+
+    WAITING_APPROVAL_TO_UPLOAD = 50;
+
+    UPLOADING = 55;
+    UPLOADED = 60;
+
+    COMPLETED = 70;
+  }
+}
+
+message Record {
+  // Encapsulates File + Row Number
+  // Should be bytes, but mongodb can't handle wildcard searches on bytes,
+  // so this will be two uint32s, where the record id is a sequential-ish
+  // number (only for uniqueness purposes) while the lower 4 bytes are the
+  // number. 32 + 32 is a bit overkill, but 32 total bits wouldn't be enough.
+  uint64 id = 1;
+
+  bytes hash = 2;
+
+  // Enum value or a RecordType ID, which is uint32
+  RecordTypeRef recordType = 3;
+
+  Status status = 5;
+  bool retriable = 17;
+
+  string sharedKey = 11;
+
+  // should be a oneof, but oneof's don't allow repeated fields
+  string rawLine = 6;
+  repeated string rawColumns = 7;
+
+  // validated will often be the same as parsed. maybe have a flag?
+  map<string, string> parsedFields = 8;
+  map<string, string> validatedFields = 9;
+  map<string, string> aggregatedFields = 10;
+
+  repeated ProcessingLog log = 12;
+  repeated ProcessingError validationErrors = 14;
+  repeated ProcessingError validationExecutionErrors = 15;
+
+  ProcessingError uploadError = 16;
+  string uploadConfirmationId = 13;
+
+  enum Status {
+    STATUS_UNKNOWN = 0;
+
+    LOAD_ERROR = 10;
+    LOADED = 20;
+
+    PARSE_ERROR = 30;
+    PARSED = 40;
+
+    VALIDATION_ERROR = 50;
+    VALIDATED = 60;
+
+    UPLOAD_ERROR = 70;
+    UPLOADED = 80;
+  }
+
+  enum RecordTypeRef {
+    RECORDTYPE_UNKNOWN = 0;
+    HEADER = 1;
+  }
+}
+
+message ProcessingError {
+  string field = 1;
+  string functionId = 2;
+  string error = 3;
+}
+
+
+// Most log entries will be ProcessingLogs attached to the FileRecord; this is
+// used for the Copier module, which might not create FileRecords.
+message CopyLog {
+  string partnerId = 1;
+  uint32 time = 2;
+
+  repeated EvaluatedFile files = 3;
+
+  message EvaluatedFile {
+    string name = 1;
+    uint64 sizeBytes = 2;
+
+    Resolution resolution = 3; // better name?
+    // action = NO_MATCH, FILE_EXISTS (id), COPIED (id)
+
+    string fileTypeId = 4;
+    uint32 fileId = 5;
+
+    enum Resolution {
+      RESOLUTION_UNKNOWN = 0;
+      NO_MATCH = 1;
+      FILE_EXISTS = 2;
+      COPIED = 3;
+    }
+  }
+}
+
+message ProcessingLog {
+  string source = 1;
+  LoggingType type = 2;
+  uint32 time = 3;
+  string message = 4;
+
+  enum LoggingType {
+    LOGGINGTYPE_UNKNOWN = 0;
+    SOME_TEXT = 1;
+  }
+}
+
+message RecordTimes {
+  uint32 loadingStartTime = 1;
+  uint32 loadingEndTime = 2;
+
+  uint32 parsingStartTime = 3;
+  uint32 parsingEndTime = 4;
+
+  uint32 validatingStartTime = 5;
+  uint32 validatingEndTime = 6;
+
+  uint32 aggregatingStartTime = 7;
+  uint32 aggregatingEndTime = 8;
+
+  uint32 uploadingStartTime = 9;
+  uint32 uploadingEndTime = 10;
+}
+
+message RecordStats {
+  uint32 approximateRows = 1;
+
+  uint32 loadedRecordsSuccess = 2;
+  uint32 loadedRecordsError = 3;
+
+  uint32 totalRows = 4;
+
+  uint32 parsedRecordsSuccess = 5;
+  uint32 parsedRecordsError = 6;
+
+  uint32 validatedRecordsSuccess = 7;
+  uint32 validatedRecordsError = 8;
+  uint32 validationExecutionErrors = 13;
+  uint32 validationErrors = 9;
+
+  uint32 uploadedRecordsSuccess = 14;
+  uint32 uploadedRecordsError = 15;
+  uint32 uploadedRecordsSkipped = 16;
+
+  map<string, StepStats> steps = 10;
+}
+
+message StepStats {
+  uint32 input = 2;
+  uint32 success = 3;
+  uint32 failure = 4;
+}

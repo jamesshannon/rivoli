@@ -11,9 +11,12 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"test:unit": "vitest",
 		"lint": "prettier --plugin-search-dir . --check . && eslint .",
-		"format": "prettier --plugin-search-dir . --write ."
+		"format": "prettier --plugin-search-dir . --write .",
+		"proto-build": "rm -rf src/lib/protos && buf generate ../protos/rivoli"
 	},
 	"devDependencies": {
+		"@bufbuild/buf": "^1.15.0-1",
+		"@bufbuild/protoc-gen-es": "^1.1.1",
 		"@playwright/test": "^1.28.1",
 		"@sveltejs/adapter-auto": "^2.0.0",
 		"@sveltejs/kit": "^1.5.0",
@@ -31,5 +34,14 @@
 		"vite": "^4.2.0",
 		"vitest": "^0.25.3"
 	},
-	"type": "module"
+	"type": "module",
+	"dependencies": {
+		"@bufbuild/protobuf": "^1.1.1",
+		"@mac-barrett/svelte-data-table": "^0.1.1",
+		"bson": "^5.1.0",
+		"carbon-components-svelte": "^0.73.4",
+		"carbon-icons-svelte": "^11.4.0",
+		"carbon-pictograms-svelte": "^12.3.0",
+		"mongodb": "^5.1.0"
+	}
 }

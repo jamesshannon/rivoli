@@ -1,0 +1,87 @@
+syntax = "proto3";
+package rivoli.protos.functions;
+
+message FunctionResource {
+  string id = 1;
+  string partnerId = 2;
+  bool active = 3;
+  string name = 4;
+  string credentials = 5;
+  // services could be both global (such as an internal API call) and also local
+  // such as an external SFTP server.
+
+  string hostname = 6;
+
+  uint32 qpmLimit = 7;
+}
+
+message Function {
+  string id = 1;
+  bool active = 2;
+  bool deprecated = 14;
+
+  string name = 3;
+  string description = 4;
+  FunctionType type = 5;
+
+  bool global = 6;
+  bool system = 7;
+  repeated string partnerId = 8;
+
+  oneof functionStatement {
+    string pythonFunction = 9;
+    string jsFunction = 10;
+    string jsCode = 11;
+    string sqlCode = 12;
+  }
+
+  //string serviceId = 5;
+
+  repeated Parameter parameters = 13;
+
+  message ApiEndpoint {
+
+    //ApiService service = 1;
+    // endpoint (url)
+    // method
+
+    // parameters are either PATH or POST
+
+    // how to deal with complex JSON posting or return types
+    // posting could be easy. create a JSON-like object with placeholders
+    // return types could use something like jq, which provides flexibility for
+    // extracting values, but not for logic (like checking a return value)
+    // alternatively, the return value could be placed into sqlite3, and SQL
+    // logic could be written. Or a similar thing with javascript or python.
+
+  }
+
+  message Parameter {
+    string variableName = 1;
+    DataType type = 4;
+    string description = 2;
+    string defaultValue = 3;
+  }
+
+  enum FunctionType {
+    FUNCTION_TYPE_UNKNOWN = 0;
+    FIELD_VALIDATION = 1;
+    RECORD_VALIDATION = 2;
+    // Upload-related not supported by sql
+    RECORD_UPLOAD = 3;
+    RECORD_ROLLBACK = 4;
+    RECORD_DUPLICATION_CHECK = 6;
+    // Javascript-only
+    FIELD_RENDERER = 7;
+  }
+
+  enum DataType {
+    DATA_TYPE_UNKNOWN = 0;
+    INTEGER = 1;
+    FLOAT = 2;
+    STRING = 3;
+    BOOLEAN = 4;
+  }
+}
+
+

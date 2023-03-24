@@ -1,0 +1,129 @@
+syntax = "proto3";
+package rivoli.protos.config;
+
+message Partner {
+  string id = 1;
+  bool active = 2;
+  string name = 3;
+
+  map<string, string> staticTags = 4;
+
+  repeated FileType fileTypes = 5;
+}
+
+message FileType {
+  string id = 1;
+  bool active = 2;
+  string name = 3;
+
+  Format format = 4;
+  repeated string fileMatches = 5;
+
+  string filenameDateFormat = 13;
+  string filenameDateRegexp = 8;
+
+  repeated string filenameTagRegexps = 12;
+
+  map<string, string> staticTags = 11;
+
+  bool hasHeader = 15;
+  string delimitedSeparator = 16;
+
+  // how to model this? basically just a link
+  repeated ReferencedFiles referencedFiles = 14;
+  RequireReview requireReview = 9;
+
+  repeated RecordType recordTypes = 7;
+  repeated Destination destinations = 10;
+
+  // might need the concept of "grouping" or "reducing"
+  // do this after the validations
+  // group on one record type, skip other record types (but assume that they're
+  // part of the groups)?
+  // require all group members to be VALIDATED?
+  // apply a callable (but give it a list of rows instead of one row)
+
+  enum Format {
+    FORMAT_UNKNOWN = 0;
+    FLAT_FILE_DELIMITED = 1;
+    FLAT_FILE_FIXED_WIDTH = 2;
+  }
+
+  enum RequireReview {
+    REQUIRE_UNKNOWN = 0;
+    INGESTION_ON_ERRORS = 1;
+    INGESTION_ALWAYS = 2;
+  }
+
+  message DelimitedFileFormat {
+    string hasHeader = 1;
+    string delimiter = 2;
+  }
+
+  message ReferencedFiles {
+    string fileTypeId = 1;
+    bool requireMatchedDate = 2;
+  }
+}
+
+
+message RecordType {
+  // RecordTypes get a (sequential) integer so that they can be stored in each
+  // record, and can be stored inside of a Enum field (alongside "hardcoded"
+  // record types, like HEADER)
+  uint32 id = 1;
+
+  string name = 2;
+  repeated string recordMatches = 4;
+
+  repeated FieldType fieldTypes = 5;
+
+  FunctionConfig successCheck = 6;
+  FunctionConfig upload = 7;
+  FunctionConfig rollback = 10;
+
+  repeated FunctionConfig validations = 8;
+  repeated FunctionConfig destinations = 9;
+}
+
+message FieldType {
+  string id = 1;
+  bool active = 2;
+  string name = 3;
+  string description = 4;
+
+  bool isSharedKey = 11;
+
+  bool isSensitive = 9;
+  FunctionConfig renderer = 10;
+
+  oneof field_location {
+    string charRange = 5; // For fixed-length files
+    string headerColumn = 6; // For delimited files with headers
+    int32 columnIndex = 7; // For delimited files without headers
+  }
+
+  repeated FunctionConfig validations = 8;
+}
+
+message FunctionConfig {
+  string id = 1;
+  string functionId = 2;
+
+  repeated string parameters = 3;
+}
+
+message Destination {
+  string name = 1;
+  DestinationType type = 2;
+  bool active = 3;
+
+  bool automatic = 4;
+
+  enum DestinationType {
+    DESTINATION_UNKNOWN = 0;
+    DOWNLOAD = 2;
+    PROGRAMMATIC = 3;
+    FILE = 4;
+  }
+}
