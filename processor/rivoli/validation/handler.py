@@ -1,6 +1,4 @@
 """ Module responsible for functions that call the actual validation. """
-import importlib
-import inspect
 import types
 import typing as t
 
@@ -30,6 +28,14 @@ def call_function(function_type: protos.Function.FunctionType,
   We expect that the module we choose (based on the functionStatement field)
   will have the appropriate function (name based on the FunctionType enum) and
   handle arguments / return correctly.
+  Overrides aren't possible based on protobuf enums, so here are the expected
+  signatures:
+    FIELD_VALIDATION: [value: str] -> str
+    RECORD_VALIDATION: [value: dict[str, str]] -> dict[str, str]
+    RECORD_UPLOAD: [value: ProcessedRecord] -> str
+    RECORD_UPLOAD_BATCH: [value: ProcessedRecord] -> str
+  All functions can raise a ValidationError or an ExecutionError, which should
+  be handled by the processor.
   """
   funcname = protos.Function.FunctionType.Name(function_type).lower()
   mod = HANDLER_MODULE_MAP[function.WhichOneof('functionStatement')]

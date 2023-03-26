@@ -3,18 +3,25 @@ import importlib
 import inspect
 import typing as t
 
-from rivoli.validation import types #?
 from rivoli import protos
 
+from rivoli.validation import helpers
+
 PARAM_TYPE_CONVERTERS: dict[str, t.Callable[[str], t.Any]] = {
-  'int': int,
+  'integer': int,
   'float': float,
   'bool': lambda val: val.upper() in ('TRUE', ),
   'str': str,
 }
 
+FunctionValue = t.Union[
+    str,
+    dict[str, str],
+    list[helpers.ProcessedRecord]
+]
+
 def _call_python_function(cfg: protos.FunctionConfig,
-    function_msg: protos.Function, value: t.Union[str, dict[str, str]]
+    function_msg: protos.Function, value: FunctionValue
     ) -> t.Union[str, dict[str, str]]:
   """ Call a python function.
   """
@@ -63,8 +70,15 @@ def record_upload(cfg: protos.FunctionConfig, function_msg: protos.Function,
 
   return str(result)
 
+def record_upload_batch(cfg: protos.FunctionConfig, function_msg: protos.Function,
+    records: list[helpers.ProcessedRecord]) -> str:
+  """ Upload a multiple records, probably via an API. """
+  result = _call_python_function(cfg, function_msg, records)
+
+  return str(result)
+
 def _create_parameters(func: t.Callable[[t.Any], str],
-    cfg: protos.FunctionConfig, function: protos.Function
+    cfg: protos.FunctionConfig, funcmsg: protos.Function
     ) -> list[t.Union[str, int, float, bool, protos.Function]]:
   """ Create a list of parameter values. """
   # The function might take parameters, in which case those are defined by the
@@ -72,10 +86,10 @@ def _create_parameters(func: t.Callable[[t.Any], str],
   params: list[t.Union[str, int, float, bool, protos.Function]] = []
 
   # Provided parameters should equal # of required parameters. No defaults.
-  assert len(function.parameters) == len(cfg.parameters)
+  assert len(funcmsg.parameters) == len(cfg.parameters)
 
   # All parameters are stored as strings, do necessary conversion
-  for param_val, param in zip(cfg.parameters, function.parameters):
+  for param_val, param in zip(cfg.parameters, funcmsg.parameters):
     typ = protos.Function.DataType.Name(param.type).lower()
     params.append(PARAM_TYPE_CONVERTERS[typ](param_val))
 
@@ -83,6 +97,6 @@ def _create_parameters(func: t.Callable[[t.Any], str],
   if len(sig.parameters.keys()) > len(cfg.parameters) + 1:
     # For now we just assume that if there is an additional parameter it's for
     # the callable
-    params.append(function)
+    params.append(funcmsg)
 
   return params

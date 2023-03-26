@@ -23,6 +23,7 @@ FUNCTION_TYPE_SIGNATURE_REQUIREMENTS = {
   protos.Function.FIELD_VALIDATION: [['value', 'str'], 'str'],
   protos.Function.RECORD_VALIDATION: [['record', 'dict'], 'dict'],
   protos.Function.RECORD_UPLOAD: [['record', 'dict'], 'dict'],
+  protos.Function.RECORD_UPLOAD_BATCH: [['records', 'list'], 'str'],
 }
 
 def parse_args() -> argparse.Namespace:
@@ -30,7 +31,7 @@ def parse_args() -> argparse.Namespace:
   parser = argparse.ArgumentParser()
   parser.add_argument('output_file')
   parser.add_argument('--module', dest='module',
-                      default='processor.validation.validators')
+                      default='rivoli.validation.validators')
 
   return parser.parse_args()
 
@@ -54,12 +55,16 @@ def get_parameters(sig: inspect.Signature, function_type: int
   # Check that the first parameter is value:str
   param = sig_params[0]
 
-  assert param.name == reqs[0][0] and param.annotation.__name__ == reqs[0][1], \
-      'First parameter is invalid'
+  if not (param.name == reqs[0][0] and param.annotation.__name__ == reqs[0][1]):
+    raise ValueError(('First parameter is invalid. Expected '
+                      f'`{reqs[0][0]}: {reqs[0][1]}` but got '
+                      f'`{param.name}: {param.annotation.__name__}`'))
 
   # Confirm that the function returns a str
-  assert sig.return_annotation.__name__ == reqs[1], \
-      'Return annotation is invalid'
+  return_typ = sig.return_annotation.__name__ if sig.return_annotation else None
+  if not (return_typ == reqs[1]):
+    raise ValueError(('Return annotation is invalid. Expected '
+                      f'`{reqs[1]}` but got `{return_typ}`'))
 
   # Now parse any additional parameters
   for param in sig_params[1:]:
@@ -86,7 +91,6 @@ def get_callables(args: argparse.Namespace) -> list[protos.Function]:
         and file.suffix == '.py'):
       module_name = f'{validators_base}.{file.stem}'
       print('Parsing', module_name, ': ', end='')
-
 
       module = importlib.import_module(module_name)
 

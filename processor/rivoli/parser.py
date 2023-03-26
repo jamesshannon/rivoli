@@ -34,33 +34,37 @@ def parse(file_id: int) -> None:
 
 class Parser(record_processor.DbRecordProcessor):
   """ Generic Parser """
-
-class FlatFileParser(Parser):
- pass
-
-
+  log_source = protos.ProcessingLog.PARSER
 
 class DelimitedParser(Parser):
+  """ Delimited file parser """
   def __init__(self, file: protos.File, partner: protos.Partner,
       filetype: protos.FileType) -> None:
     super().__init__(file, partner, filetype)
 
     self.fieldnames: dict[int, list[t.Optional[str]]] = {}
+    """ Fieldnames by RecordType ID.
+    Not all headers will have an associated field and fieldname, in which
+    case the list needs to have a None placeholder.
+    """
     self.shared_keys: dict[int, list[str]] = {}
 
   def parse(self):
     """ Parse the "raw data" in the records and save the struct. """
-    # If File.header_columns has been set then we have a header row
-    if self.file.headerColumns:
-      assert len(self.filetype.recordTypes) == 1, \
-          'More than one filetype found despite having a header row'
+    # If File.headerColumns has been set then we have a header row
+
+    if self.file.headerColumns and len(self.filetype.recordTypes) > 1:
+      raise ValueError('Header row but more than one filetype')
 
     for recordtype in self.filetype.recordTypes:
       # Set the fieldnames
       if self.file.headerColumns:
         # If row has a header then we use the columns we got from the loading
         # step plus the mapping from the FieldTypes. Not all columns will have
-        # a mapped fieldname, in which case the list value will be None,
+        # a mapped fieldname, in which case the list value will be None
+
+        # Create a mapping from the field's configured headerColumn to the
+        # field name (which is how values should be stored)
         fieldname_mapping = {field.headerColumn: field.name
                              for field in recordtype.fieldTypes if field.active}
 
@@ -91,20 +95,19 @@ class DelimitedParser(Parser):
 
     # Final update to the File record
     self.file.status = protos.File.PARSED
-    self.file.log.append(processing.new_log_entry(
-        'DelimitedParser.parse', 'Parsed records'))
-    self._update_file(['status', 'log', 'stats'])
+    self.file.log.append(self._make_log_entry(False, 'Parsed records'))
+    self._update_file(['status', 'log', 'stats', 'times'])
 
   def _process_one_record(self, record: protos.Record
       ) -> t.Optional[pymongo.UpdateOne]:
     if record.recordType == record.HEADER:
-      # Ignore this for stats
+      # Header rows don't impact stats
       print('skipping header')
       return None
 
     # Check the status.
     if record.status < protos.Record.LOADED:
-      # Don't generate stats off this invariant
+      # This invariant shouldn't impact stats
       print('skipping record that wasnt loaded', record.status)
       return None
 
@@ -113,12 +116,15 @@ class DelimitedParser(Parser):
 
     # Ensure that the loaded record ID is in our list of record ids
     if record.recordType not in self.fieldnames:
-      # This is an invariant
+      # This is an invariant. This is unexpected; no point to add a log
       stepstats.failure += 1
       return None
 
     fieldnames = self.fieldnames[record.recordType]
     shared_keys = self.shared_keys[record.recordType]
+
+    # Clear any recent errors for this record
+    del record.recentErrors[:]
 
     row = record.rawColumns
 
@@ -127,19 +133,24 @@ class DelimitedParser(Parser):
 
     if len(row) < len(fieldnames):
       record.status = protos.Record.PARSE_ERROR
-      # TODO: Add a log entry
+      log = self._make_log_entry(True,
+          (f'Less values than fields: Found {len(row)} values but expected at '
+           f'least {len(fieldnames)}'),
+          protos.ProcessingLog.UNEXPECTED)
+      record.log.append(log)
+      record.recentErrors.append(log)
+
       stepstats.failure += 1
-      return self._make_update(record, ['status'])
+      return self._make_update(record, ['status', 'log', 'recentErrors'])
 
     # zip() stops with the shortest iterable, which is OK when fieldnames is
-    # shortest (we lose loaded fields that didn't have FieldTypes), but might
-    # be confusing if the row has less values than the fieldnames
+    # shortest (we lose loaded fields that didn't have FieldTypes), but would
+    # be confusing if the row had less values than the fieldnames
     parsed = dict(zip(fieldnames, row))
     # The zipping produces dict items keyed with None -- remove those
     parsed.pop(None, None)
 
     # We don't (currently) support extra fields or default values
-
     record.parsedFields.update(parsed)
     stepstats.success += 1
     record.status = protos.Record.PARSED

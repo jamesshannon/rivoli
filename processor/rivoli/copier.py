@@ -31,7 +31,7 @@ def scan(partner_id: str):
   """ Search for new files for a partner and set them up for processing. """
   # get the "copy" sources
   # instantiate the appropriate class
-  base_dir = pathlib.Path(__file__).parent.parent / 'test_files'
+  base_dir = pathlib.Path(__file__).parent.parent.parent.parent / 'rivolifiles'
   cfg = {'path': str(base_dir / 'input')}
 
   dest_dir = base_dir / 'processed'
@@ -87,16 +87,18 @@ class Copier(abc.ABC):
       fileTypeId=filetype.id,
     )
 
-    file.log.append(
-        processing.new_log_entry('Copier.create_file', 'File Created'))
+    file.log.append(protos.ProcessingLog(
+        source=protos.ProcessingLog.COPIER,
+        level=protos.ProcessingLog.INFO,
+        time=bson_format.now(),
+        message='File Created'))
 
     # get # of lines from the file
     line_count = sum(1 for _
-        in open(local_file, 'r', encoding='ascii').readlines())
+        in open(local_file, 'r', encoding='UTF-8').readlines())
     file.stats.approximateRows = line_count
 
     mydb.files.insert_one(bson_format.from_proto(file))
-    #file_id: bson.ObjectId = result.inserted_id
 
     new_name = self._file_longterm_name(orig_file, file_id)
     local_file.rename(local_file.with_name(new_name))
@@ -124,7 +126,8 @@ class Copier(abc.ABC):
 
     return None
 
-  def _parse_tags(self, orig_file: pathlib.Path, filetype: protos.FileType) -> dict[str, str]:
+  def _parse_tags(self, orig_file: pathlib.Path, filetype: protos.FileType
+      ) -> dict[str, str]:
     dct: dict[str, str] = {}
 
     for exp in filetype.filenameTagRegexps:

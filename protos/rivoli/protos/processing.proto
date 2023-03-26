@@ -31,6 +31,7 @@ message File {
   map<string, string> tags = 13;
 
   repeated ProcessingLog log = 8;
+  repeated ProcessingLog recentErrors = 20;
 
   RecordStats stats = 14;
   RecordTimes times = 19;
@@ -40,6 +41,7 @@ message File {
     NEW = 5;
 
     LOADING = 10;
+    LOAD_ERROR = 12;
     LOADED = 15;
 
     PARSING = 20;
@@ -88,11 +90,9 @@ message Record {
   map<string, string> aggregatedFields = 10;
 
   repeated ProcessingLog log = 12;
-  repeated ProcessingError validationErrors = 14;
-  repeated ProcessingError validationExecutionErrors = 15;
+  repeated ProcessingLog recentErrors = 13;
 
-  ProcessingError uploadError = 16;
-  string uploadConfirmationId = 13;
+  string uploadConfirmationId = 14;
 
   enum Status {
     STATUS_UNKNOWN = 0;
@@ -115,13 +115,6 @@ message Record {
     HEADER = 1;
   }
 }
-
-message ProcessingError {
-  string field = 1;
-  string functionId = 2;
-  string error = 3;
-}
-
 
 // Most log entries will be ProcessingLogs attached to the FileRecord; this is
 // used for the Copier module, which might not create FileRecords.
@@ -151,14 +144,41 @@ message CopyLog {
 }
 
 message ProcessingLog {
-  string source = 1;
-  LoggingType type = 2;
-  uint32 time = 3;
-  string message = 4;
+  LogSource source = 1;
 
-  enum LoggingType {
-    LOGGINGTYPE_UNKNOWN = 0;
-    SOME_TEXT = 1;
+  LogLevel level = 2;
+  LogType type = 3;
+
+  uint32 time = 4;
+  string message = 5;
+
+  string field = 6;
+  string functionId = 7;
+
+  enum LogSource {
+    LOGSOURCE_UNKNOWN = 0;
+    COPIER = 1;
+    LOADER = 2;
+    PARSER = 3;
+    VALIDATOR = 4;
+    AGGREGATOR = 5;
+    UPLOADER = 6;
+  }
+
+  enum LogLevel {
+    LOGLEVEL_UNKNOWN = 0;
+    DEBUG = 1;
+    INFO = 2;
+    WARNING = 3;
+    ERROR = 4;
+  }
+
+  enum LogType {
+    LOGTYPE_UNKNOWN = 0;
+
+    VALIDATION = 1;
+    EXECUTION = 2;
+    UNEXPECTED = 3;
   }
 }
 

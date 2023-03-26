@@ -2,8 +2,8 @@ import abc
 import base64
 import itertools
 import re
+import time
 import typing as t
-import types
 
 import pymongo
 
@@ -11,8 +11,12 @@ from rivoli import db
 from rivoli import protos
 from rivoli.protobson import bson_format
 
+from rivoli.validation import helpers
+
 class RecordProcessor(abc.ABC):
   """ Abstract class to handle processing records in files or database. """
+  log_source: protos.ProcessingLog.LogSource
+
   def __init__(self, file: protos.File, partner: protos.Partner,
                filetype: protos.FileType) -> None:
     self.file = file
@@ -55,21 +59,25 @@ class RecordProcessor(abc.ABC):
       # But should we allow re-loading for any reason?
       print('Skip the loading because status could not be updated')
 
-  def _update_file(self, update_fields: list[str]) -> None:
+  def _update_file(self, update_fields: list[str],
+        status: t.Optional['protos.File.Status'] = None) -> None:
     """ Update the File record in the database. """
+    if status:
+      self.file.status = status
+
     self.db.files.update_one(
       *bson_format.get_update_args(self.file, update_fields))
 
   def _all_records_filter(self,
       status: t.Optional['protos.Record.Status'] = None,
-      status_filter_gte: bool = True) -> dict[str, t.Any]:
+      status_filter_gte: bool = True, sort: str = None) -> dict[str, t.Any]:
     """ Create a db filter for all Records for a file.
-    The Record key is prefaced by the file key, so a key-based "starts with"
-    match will return all records.
+    The Record key is prefaced by the file key, so a primary-key-based filter
+    can return all records.
     """
     # Since the record id is an int64 where the first 4 bytes are the file id,
     # the record IDs range from file ID shifted 4 bytes to the left to the same
-    # value but if the last 4 bytes were all 255. This filter creates that
+    # value but if the last 4 bytes were all 0xFF. This filter creates that
     # range.
     max_record_id = self.record_prefix + ((1 << 32) - 1)
     fltr = {'_id': {'$gte': self.record_prefix, '$lte': max_record_id}}
@@ -144,13 +152,25 @@ class RecordProcessor(abc.ABC):
 
     return None
 
+  def _make_log_entry(self, error: bool, message: str,
+      typ: t.Optional['protos.ProcessingLog.LogType'] = None, **kwargs: t.Any
+      ) -> protos.ProcessingLog:
+    return protos.ProcessingLog(
+      source=self.log_source,
+      level=protos.ProcessingLog.ERROR if error else protos.ProcessingLog.INFO,
+      type=typ,
+      time=bson_format.now(),
+      message=message,
+      **kwargs
+    )
+
 class DbRecordProcessor(RecordProcessor):
   """ Abstract class to handle processing database records. """
   def _get_all_records(self, status: t.Optional['protos.Record.Status'] = None,
-      status_filter_gte: bool = True):
+      status_filter_gte: bool = True, **kwargs: t.Any):
     """ Generator for all Record records for the class instance's File. """
     for record in self.db.records.find(
-        self._all_records_filter(status, status_filter_gte)):
+        self._all_records_filter(status, status_filter_gte), **kwargs):
       yield bson_format.to_proto(protos.Record, record)
 
   def _make_update(self, record: protos.Record, update_fields: list[str]
@@ -197,3 +217,6 @@ class DbRecordProcessor(RecordProcessor):
       ) -> t.Optional[pymongo.UpdateOne]:
     """ Implementation-specific method to process one record.
     Called once for every record in the db to perform processing. """
+
+
+

@@ -1,5 +1,5 @@
 """ Validation handler helpers. """
-
+import dataclasses
 import functools
 import typing as t
 
@@ -18,6 +18,11 @@ class ExecutionError(RuntimeError):
 
     self.retriable = retriable
 
+@dataclasses.dataclass
+class ProcessedRecord():
+  id: int
+  recordtype: protos.RecordType
+  validated_fields: dict[str, str]
 
 def register_func(function_type: protos.Function.FunctionType,
                   deprecated: bool = False):

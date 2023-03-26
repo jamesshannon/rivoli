@@ -24,8 +24,8 @@ message Function {
   string description = 4;
   FunctionType type = 5;
 
-  bool global = 6;
-  bool system = 7;
+  bool isGlobal = 6;
+  bool isSystem = 7;
   repeated string partnerId = 8;
 
   oneof functionStatement {
@@ -69,6 +69,7 @@ message Function {
     RECORD_VALIDATION = 2;
     // Upload-related not supported by sql
     RECORD_UPLOAD = 3;
+    RECORD_UPLOAD_BATCH = 8;
     RECORD_ROLLBACK = 4;
     RECORD_DUPLICATION_CHECK = 6;
     // Javascript-only

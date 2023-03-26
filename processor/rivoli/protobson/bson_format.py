@@ -49,8 +49,8 @@ def from_proto(msg: message.Message, ordered: bool = False) -> dict[str, t.Any]:
 
   return dct
 
-def get_update_map(msg: message.Message, fields: list[str]
-    ) -> dict[str, t.Any]:
+def get_update_map(msg: message.Message, fields: list[str],
+    list_append_fields: t.Optional[list[str]] = None) -> dict[str, t.Any]:
   update_map: dict[str, t.Any] = collections.defaultdict(dict)
   dct = from_proto(msg)
 
@@ -62,6 +62,11 @@ def get_update_map(msg: message.Message, fields: list[str]
       update_map['$set'][field] = dct[field]
     else:
       update_map['$unset'][field] = ""
+
+  for field in (list_append_fields or []):
+    if field in dct:
+      assert isinstance(dct[field], list)
+      update_map['$addToSet'][field] = {'$each': dct[field]}
 
   return dict(update_map)
 

@@ -1,32 +1,31 @@
 <script lang="ts">
+	import { DataTable } from 'carbon-components-svelte';
 
-import {
-  DataTable
-} from "carbon-components-svelte";
+	import type { ProcessingLog } from '$lib/protos/processing_pb';
 
+	import { dateTime, makeObjectId } from '$lib/helpers/utils';
 
-import type { ProcessingLog } from "$lib/protos/processing_pb";
+	export let logs: Array<ProcessingLog>;
 
-import {dateTime} from "$lib/helpers/utils";
+	let headers = [
+		{ key: 'time', value: 'Date' },
+		{ key: 'source', value: 'Source' },
+		{ key: 'message', value: 'Message' }
+	];
 
-export let logs: Array<ProcessingLog>;
-
-let headers = [
-  {key: 'time', value: 'Date'},
-  {key: 'source', value: 'Source'},
-  {key: 'message', value: 'Message' },
-];
-
-let rows = logs.reverse().map((pl) => {return {id: pl.time, time: pl.time, source: pl.source, message: pl.message}});
-
+	// Sometimes (like development) pl.time is not unique and so we need to use
+	// a random unique ID
+	let rows = logs.reverse().map((pl) => {
+		return { id: makeObjectId(), time: pl.time, source: pl.source, message: pl.message };
+	});
 </script>
 
 <DataTable pageSize={10} bind:headers bind:rows>
-  <svelte:fragment slot="cell" let:row let:cell>
-    {#if cell.key === "time"}
-      {dateTime(cell.value)}
-    {:else}
-      {cell.value}
-    {/if}
-  </svelte:fragment>
+	<svelte:fragment slot="cell" let:row let:cell>
+		{#if cell.key === 'time'}
+			{dateTime(cell.value)}
+		{:else}
+			{cell.value}
+		{/if}
+	</svelte:fragment>
 </DataTable>

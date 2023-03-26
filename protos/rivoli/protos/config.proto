@@ -26,12 +26,14 @@ message FileType {
 
   map<string, string> staticTags = 11;
 
-  bool hasHeader = 15;
+  bool hasHeader = 14;
   string delimitedSeparator = 16;
 
   // how to model this? basically just a link
-  repeated ReferencedFiles referencedFiles = 14;
   RequireReview requireReview = 9;
+
+  uint32 uploadBatchSize = 15;
+  string uploadBatchGroupKey = 17;
 
   repeated RecordType recordTypes = 7;
   repeated Destination destinations = 10;

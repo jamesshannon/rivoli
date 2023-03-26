@@ -13,7 +13,6 @@ from rivoli.protos.processing_pb2 import File
 from rivoli.protos.processing_pb2 import Record
 from rivoli.protos.processing_pb2 import RecordStats
 from rivoli.protos.processing_pb2 import ProcessingLog
-from rivoli.protos.processing_pb2 import ProcessingError
 from rivoli.protos.processing_pb2 import StepStats
 
 from rivoli.protos.functions_pb2 import Function

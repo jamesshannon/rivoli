@@ -1,3 +1,5 @@
+import { env } from '$env/dynamic/private';
+
 import type { Message } from '@bufbuild/protobuf';
 import { MongoClient, ObjectId, Collection, FindCursor, type Filter, Binary } from 'mongodb';
 
@@ -9,6 +11,17 @@ const client = new MongoClient(uri, {
 });
 
 export const db = client.db('testdb');
+
+export async function getNextId(collection: string, offset: number = 0): Promise<number> {
+	const resp = await db
+		.collection('counters')
+		.findOneAndUpdate(
+			{ _id: collection },
+			{ $inc: { value: 1 } },
+			{ upsert: true, returnDocument: 'after' }
+		);
+	return parseFloat(resp.value!.value) + offset;
+}
 
 export async function getOne<T extends Message>(
 	coll: Collection,
@@ -32,18 +45,20 @@ export async function upsert(coll: Collection, msg: Message, binaryId: boolean =
 	return await coll.updateOne(id_filter, { $set: json }, { upsert: true });
 }
 
-export async function getEntitiesList(cursor: FindCursor): Promise<Array<any>> {
-	const jsons = [];
+export async function getEntitiesList<T extends Message>(cursor: FindCursor): Promise<Array<T>> {
+	const docs = [];
 
 	for await (let doc of cursor) {
 		doc = cleanDoc(doc);
-		jsons.push(doc);
+		docs.push(doc);
 	}
 
-	return jsons;
+	return docs;
 }
 
-export async function getEntitiesMap(cursor: FindCursor): Promise<Map<string, any>> {
+export async function getEntitiesMap<T extends Message>(
+	cursor: FindCursor
+): Promise<Map<string, T>> {
 	const map: Map<string, any> = new Map();
 
 	for await (let doc of cursor) {
