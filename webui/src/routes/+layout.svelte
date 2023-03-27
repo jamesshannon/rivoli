@@ -36,9 +36,14 @@
 </div>
 
 <style>
+<<<<<<< HEAD
 	:global(.header_logo) {
 		height: 100%;
 		padding: 10% 10% 10% 0;
+=======
+	.header_logo {
+		height: 100%;
+>>>>>>> main
 	}
 
 	.app {
