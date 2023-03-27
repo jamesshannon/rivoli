@@ -8,11 +8,11 @@
 	import { SvelteDataTable } from '@mac-barrett/svelte-data-table';
 	import type { PageData } from './$types';
 
+	import { File_Status } from '$lib/protos/processing_pb';
+
 	export let data: PageData;
 	const partnerMap = data.partnerMap;
 	const filetypeMap = data.filetypeMap;
-	console.log('HERE');
-	console.log(partnerMap, filetypeMap);
 
 	function renderFileName(data, type: String, row) {
 		if (type === 'display') {
@@ -49,6 +49,10 @@
 		return `<a href="/partners/${row.partnerId}/filetypes/${row.fileTypeId}">${
 			filetypeMap.get(row.fileTypeId).name
 		}</a>`;
+	}
+
+	function renderStatus(data, type: string, row) {
+		return File_Status[row.status] || '';
 	}
 
 	let config = {
@@ -91,7 +95,8 @@
 			},
 			{
 				title: 'Status',
-				data: 'status'
+				data: 'status',
+				render: renderStatus,
 			}
 		]
 	};

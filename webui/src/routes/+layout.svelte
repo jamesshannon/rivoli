@@ -1,23 +1,45 @@
 <script lang="ts">
 	import "carbon-components-svelte/css/g10.css";
 
-	import Header from './Header.svelte';
+	import { Content, Header, HeaderNav, HeaderNavItem } from "carbon-components-svelte";
+	import { Grid, Row, Column } from "carbon-components-svelte";
+
+	import Logo from '$lib/assets/Logo.svelte';
 </script>
 
 <div class="app">
 	<link rel='stylesheet' href='%sveltekit.assets%/global.css'>
-	<Header />
+	<Header platformName="Rivoli">
+		<svelte:fragment slot="platform">
+			<Logo color="white" class="header_logo"/>  Rivoli
+		</svelte:fragment>
+		<HeaderNav>
+			<HeaderNavItem href="/files" text="Files" />
+			<HeaderNavItem href="/partners" text="Partners" />
+			<HeaderNavItem href="/functions" text="Functions" />
+		</HeaderNav>
+	</Header>
 
-	<main>
-		<slot />
-	</main>
+	<Content>
+		<Grid>
+			<Row>
+				<Column>
+					<slot />
+				</Column>
+			</Row>
+		</Grid>
+	</Content>
 
 	<footer>
-		<p>visit <a href="https://kit.svelte.dev">kit.svelte.dev</a> to learn SvelteKit</p>
+		...
 	</footer>
 </div>
 
 <style>
+	.header_logo {
+		height: 100%;
+	}
+
 	.app {
 		display: flex;
 		flex-direction: column;
