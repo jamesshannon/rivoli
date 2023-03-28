@@ -5,18 +5,17 @@
     Breadcrumb,
     BreadcrumbItem,
     Button,
-    Dropdown
+    Dropdown,
+    Modal
   } from 'carbon-components-svelte';
 
   import { onMount } from 'svelte';
 
   import type { PageData } from './$types';
 
-  import FileStatus from '$lib/components/FileStatus.svelte';
-
   import { SvelteDataTable } from '@mac-barrett/svelte-data-table';
 
-  import { dateTime } from '$lib/helpers/utils';
+  import { dateTime, escapeHTML } from '$lib/helpers/utils';
   import { type Partner, FileType } from '$lib/protos/config_pb';
   import {
     File,
@@ -31,35 +30,23 @@
   const filetype = FileType.fromJson(data.fileType as any);
   const recordTypes = new Map(filetype.recordTypes.map((rt) => [rt.id, rt]));
 
-  const statusDropdownAnyOption = { id: 'none', text: 'All Statuses' };
-  let statusDropdownOptions: Array<any> = [statusDropdownAnyOption];
-  let statusLastSelectedId = 'none';
-  let statusSelectedId = 'none';
-
-  const escape = document.createElement('textarea');
-  function escapeHTML(html: string): string {
-    escape.textContent = html;
-    return escape.innerHTML;
-  }
+  const statusDropdownAllOption = { id: '', text: 'All Statuses' };
+  let statusDropdownOptions: Array<any> = [statusDropdownAllOption];
+  let retryModalOpen = false;
+  let filter: any = { filter: { status: '' }, resultCount: 0 };
 
   async function retrieveRecords(requestData, callback, settings) {
     console.log(requestData, settings);
     console.log(requestData.columns[3]);
 
-    const status_filter =
-      requestData.columns.find((c) => c.name == 'status').search.value || '';
-    console.log(status_filter);
-
     const fetchParams = new URLSearchParams({
       start: requestData.start,
       length: requestData.length,
-      status_filter: status_filter
+      ...filter.filter
     });
 
     const resp = await fetch($page.url.pathname + '?' + fetchParams);
-    const result: Array<Record> = await resp.json();
-
-    console.log(result);
+    const result: any = await resp.json();
 
     const records = [];
     const recordIdMask = (1n << 32n) - 1n;
@@ -79,19 +66,17 @@
       records.push(record);
     }
 
-    statusDropdownOptions = [statusDropdownAnyOption].concat(
+    statusDropdownOptions = [statusDropdownAllOption].concat(
       Object.entries(result.statusCounts).map(([status, cnt]) => ({
         id: status,
         text: `${Record_Status[status]} (${cnt})`
       }))
     );
-    console.log(statusDropdownOptions);
 
-    let filtered_records: number;
-    if (status_filter) {
-      filtered_records = result.statusCounts[status_filter] || 0;
+    if (filter.filter.status) {
+      filter.resultCount = result.statusCounts[filter.filter.status] || 0;
     } else {
-      filtered_records = file.stats?.loadedRecordsSuccess || 0;
+      filter.resultCount = file.stats?.loadedRecordsSuccess || 0;
     }
 
     console.log(records[3]);
@@ -100,7 +85,7 @@
       draw: parseInt(requestData.draw),
       data: records,
       recordsTotal: file.stats?.loadedRecordsSuccess,
-      recordsFiltered: filtered_records
+      recordsFiltered: filter.resultCount
     });
   }
 
@@ -108,7 +93,7 @@
     let html = '<ul>';
     for (let error of errors) {
       html += '<li>';
-      html += escapeHTML(error['message']);
+      html += escapeHTML(error.message);
       html += '</li>';
     }
     return html + '</ul>';
@@ -118,7 +103,7 @@
     if (type === 'display' || type === 'filter') {
       // Only show recent errors for now...
       if (row.recentErrors?.length) {
-        return renderErrorList(row['recentErrors']);
+        return renderErrorList(row.recentErrors);
       }
     }
 
@@ -187,7 +172,7 @@
     paging: true,
     pageLength: 10,
     searching: true,
-    dom: 'lrtip',
+    dom: 'lrtip', // hide the search box
     ordering: false,
     serverSide: true,
     deferRender: true,
@@ -224,12 +209,40 @@
 
   $: {
     console.log('dropdown changed');
-    if (statusSelectedId != statusLastSelectedId) {
-      // If the dropdown has items then the data table should be fully loaded
-      const column = myDataTable.getAPI()?.column('status:name')!;
-      column.search(statusSelectedId === 'none' ? '' : statusSelectedId).draw();
-    }
-    statusLastSelectedId = statusSelectedId;
+    // if (statusSelectedId != statusLastSelectedId) {
+    //
+    //   const column = myDataTable.getAPI()?.column('status:name')!;
+    //   column.search(statusSelectedId === 'none' ? '' : statusSelectedId).draw();
+    // }
+    // statusLastSelectedId = statusSelectedId;
+
+    // determine when Retry button is allowed. Only when status is selected and
+    // UPLOAD_ERROR and file is not currently processing
+  }
+  function filterStatusSelected(evt: CustomEvent) {
+    console.log('selected', evt.detail, filter.filter);
+
+    // If the dropdown has items then the data table should be fully loaded
+    myDataTable
+      .getAPI()
+      ?.column('status:name')!
+      .search(filter.filter.status === '0' ? '' : filter.filter.status)
+      .draw();
+
+    //
+  }
+
+  async function revertRecordStatuses(evt: MouseEvent) {
+    console.log('clicked', evt, filter.filter);
+
+    // double-check that the modal should have been opened
+
+    const resp = fetch($page.url.pathname, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'REVERT', ...filter.filter })
+    });
+
+    console.log(await (await resp).json());
   }
 
   onMount(async () => {
@@ -248,8 +261,30 @@
   type="inline"
   titleText="Status"
   bind:items={statusDropdownOptions}
-  bind:selectedId={statusSelectedId}
+  bind:selectedId={filter.filter.status}
+  on:select={filterStatusSelected}
 />
+
+<Button
+  size="field"
+  kind="tertiary"
+  on:click={() => {
+    retryModalOpen = true;
+  }}>Revert Record Statuses</Button
+>
+
+<Modal
+  bind:open={retryModalOpen}
+  modalHeading="Retry Records"
+  primaryButtonText="Confirm"
+  secondaryButtonText="Cancel"
+  on:click:button--primary={revertRecordStatuses}
+  on:click:button--secondary={() => (retryModalOpen = false)}
+>
+  Revert {filter.resultCount} records to <code>VALIDATED</code>? This will
+  revert the record status for the {filter.resultCount} records in the table so that
+  the upload can be re-tried.
+</Modal>
 
 <div class="local" on:click={expandRowHandler}>
   <SvelteDataTable bind:this={myDataTable} {config} />
