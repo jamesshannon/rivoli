@@ -147,6 +147,7 @@ message CopyLog {
 
 message ProcessingLog {
   LogSource source = 1;
+  string requestor = 8;
 
   LogLevel level = 2;
   ErrorCode errorCode = 3;
@@ -166,6 +167,7 @@ message ProcessingLog {
     VALIDATOR = 4;
     AGGREGATOR = 5;
     UPLOADER = 6;
+    MANUAL_REQUEST = 20;
   }
 
   enum LogLevel {

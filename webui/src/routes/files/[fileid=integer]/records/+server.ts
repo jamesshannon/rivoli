@@ -93,9 +93,15 @@ export async function POST({ url, params, request }) {
 
   // update the records
   const update = {
+    // Set the status to VALIDATED -- currently the only "to" status supported
     $set: { status: Record_Status.VALIDATED.valueOf() },
-    $unset: { recentErrors: {} },
-    $addToSet: { log: log.toJson({ enumAsInteger: true }) },
+    // Remove the log of recentErrors
+    $unset: { recentErrors: {}, autoRetry: {} },
+    // Add a log entry describing this reverting
+    $addToSet: {
+      log: log.toJson({ enumAsInteger: true }) as any
+    },
+    // Increment the retry count
     $inc: { retryCount: 1 }
   };
 
@@ -103,10 +109,12 @@ export async function POST({ url, params, request }) {
   console.log(resp);
 
   // Update the file
-  log.message = `Reverted record status to VALIDATED on ${resp.modifiedCount} records`;
+  const modified = resp.modifiedCount;
+  log.message = `Reverted record status to VALIDATED on ${modified} records`;
   db.collection('files').updateOne(
     { _id: parseInt(fileId) },
-    { $addToSet: { log: log.toJson({ enumAsInteger: true }) } }
+    { $addToSet: { log: log.toJson({ enumAsInteger: true }) } },
+    { $inc: { 'stats.uploadedRecordsError': -1 * modified } }
   );
 
   return json({ status: 'success' });

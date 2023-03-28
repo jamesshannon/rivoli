@@ -33,7 +33,24 @@
   const statusDropdownAllOption = { id: '', text: 'All Statuses' };
   let statusDropdownOptions: Array<any> = [statusDropdownAllOption];
   let retryModalOpen = false;
-  let filter: any = { filter: { status: '' }, resultCount: 0 };
+  let retryModalEnabled = false;
+
+  //let filter: any = { filter: { status: '' }, resultCount: 0 };
+
+  class RecordsFilter {
+    status: string = '';
+
+    get filterObj(): { [key: string]: string } {
+      return { status: this.status };
+    }
+
+    reset() {
+      this.status = '';
+    }
+  }
+
+  let filter = new RecordsFilter();
+  let filteredResultCount = 0;
 
   async function retrieveRecords(requestData, callback, settings) {
     console.log(requestData, settings);
@@ -42,7 +59,7 @@
     const fetchParams = new URLSearchParams({
       start: requestData.start,
       length: requestData.length,
-      ...filter.filter
+      ...filter.filterObj
     });
 
     const resp = await fetch($page.url.pathname + '?' + fetchParams);
@@ -73,10 +90,10 @@
       }))
     );
 
-    if (filter.filter.status) {
-      filter.resultCount = result.statusCounts[filter.filter.status] || 0;
+    if (filter.status) {
+      filteredResultCount = result.statusCounts[filter.status] || 0;
     } else {
-      filter.resultCount = file.stats?.loadedRecordsSuccess || 0;
+      filteredResultCount = file.stats?.totalRows || 0;
     }
 
     console.log(records[3]);
@@ -84,16 +101,16 @@
     callback({
       draw: parseInt(requestData.draw),
       data: records,
-      recordsTotal: file.stats?.loadedRecordsSuccess,
-      recordsFiltered: filter.resultCount
+      recordsTotal: file.stats?.totalRows || 0,
+      recordsFiltered: filteredResultCount
     });
   }
 
-  function renderErrorList(errors: Array<any>) {
+  function renderLogList(logs: Array<any>) {
     let html = '<ul>';
-    for (let error of errors) {
+    for (let log of logs) {
       html += '<li>';
-      html += escapeHTML(error.message);
+      html += dateTime(log.time) + ' ' + escapeHTML(log.message);
       html += '</li>';
     }
     return html + '</ul>';
@@ -103,7 +120,7 @@
     if (type === 'display' || type === 'filter') {
       // Only show recent errors for now...
       if (row.recentErrors?.length) {
-        return renderErrorList(row.recentErrors);
+        return renderLogList(row.recentErrors);
       }
     }
 
@@ -147,7 +164,7 @@
     }
 
     if (data.log?.length) {
-      lines.push('<div><h5>Log</h5>' + renderErrorList(data.log) + '</div>');
+      lines.push('<div><h5>Log</h5>' + renderLogList(data.log) + '</div>');
     }
 
     return '<div class="expanded_row">' + lines.join('') + '</div>';
@@ -226,23 +243,33 @@
     myDataTable
       .getAPI()
       ?.column('status:name')!
-      .search(filter.filter.status === '0' ? '' : filter.filter.status)
+      .search(filter.status === '0' ? '' : filter.status)
       .draw();
 
     //
   }
 
-  async function revertRecordStatuses(evt: MouseEvent) {
-    console.log('clicked', evt, filter.filter);
+  async function revertRecordStatuses(evt: CustomEvent) {
+    console.log('clicked', evt, filter.filterObj);
 
-    // double-check that the modal should have been opened
+    if (!retryModalEnabled) {
+      return;
+    }
 
-    const resp = fetch($page.url.pathname, {
+    const resp = await fetch($page.url.pathname, {
       method: 'POST',
-      body: JSON.stringify({ action: 'REVERT', ...filter.filter })
+      body: JSON.stringify({ action: 'REVERT', ...filter.filterObj })
     });
 
-    console.log(await (await resp).json());
+    const response = await resp.json();
+
+    alert(JSON.stringify(response));
+    retryModalOpen = false;
+  }
+
+  $: {
+    retryModalEnabled =
+      filter.status === Record_Status.UPLOAD_ERROR.valueOf().toString();
   }
 
   onMount(async () => {
@@ -257,21 +284,24 @@
   <BreadcrumbItem isCurrentPage>Records</BreadcrumbItem>
 </Breadcrumb>
 
-<Dropdown
-  type="inline"
-  titleText="Status"
-  bind:items={statusDropdownOptions}
-  bind:selectedId={filter.filter.status}
-  on:select={filterStatusSelected}
-/>
+<div id="filters">
+  <Dropdown
+    type="inline"
+    titleText="Status"
+    items={statusDropdownOptions}
+    bind:selectedId={filter.status}
+    on:select={filterStatusSelected}
+  />
 
-<Button
-  size="field"
-  kind="tertiary"
-  on:click={() => {
-    retryModalOpen = true;
-  }}>Revert Record Statuses</Button
->
+  <Button
+    size="field"
+    kind="tertiary"
+    disabled={!retryModalEnabled}
+    on:click={() => {
+      retryModalOpen = true;
+    }}>Revert Record Statuses</Button
+  >
+</div>
 
 <Modal
   bind:open={retryModalOpen}
@@ -281,9 +311,9 @@
   on:click:button--primary={revertRecordStatuses}
   on:click:button--secondary={() => (retryModalOpen = false)}
 >
-  Revert {filter.resultCount} records to <code>VALIDATED</code>? This will
-  revert the record status for the {filter.resultCount} records in the table so that
-  the upload can be re-tried.
+  Revert {filteredResultCount} records to <code>VALIDATED</code>? This will
+  revert the record status for the {filteredResultCount} records in the table so
+  that the upload can be re-tried.
 </Modal>
 
 <div class="local" on:click={expandRowHandler}>
@@ -291,6 +321,12 @@
 </div>
 
 <style>
+  #filters {
+    margin: 10px;
+    border: 1px solid blue;
+    padding: 10px;
+  }
+
   .local :global(div.expand-button) {
     cursor: pointer;
     position: relative;
