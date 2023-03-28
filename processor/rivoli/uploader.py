@@ -37,7 +37,7 @@ def upload(file_id: int) -> None:
 
 class Uploader(record_processor.DbRecordProcessor):
   log_source = protos.ProcessingLog.UPLOADER
-  update_fields = ['status', 'stats', 'log', 'uploadError', 'retriable']
+  update_fields = ['status', 'stats', 'log']
 
   """ Class to upload records. """
   def __init__(self, file: protos.File, partner: protos.Partner,
@@ -127,9 +127,7 @@ class BatchRecordUploader(Uploader):
     ss.input += 1
 
     # TODO: Logs should probably be added in all of these cases
-    if (record.status != protos.Record.VALIDATED
-        and not (record.status == protos.Record.UPLOAD_ERROR
-            and record.retriable)):
+    if record.status != protos.Record.VALIDATED:
       # This should never happen.
       # Record needs to be validated, and we don't want to re-upload records
       ss.failure += 1
@@ -172,8 +170,6 @@ class BatchRecordUploader(Uploader):
     pending_updates: list[t.Union[pymongo.UpdateOne, pymongo.UpdateMany]] = []
 
     record_type: t.Optional[protos.RecordType] = None
-
-    last_file_update = time.time()
 
     try:
       for record in records:
@@ -274,7 +270,10 @@ class BatchRecordUploader(Uploader):
       # Coerce None into an empty string
       a_record.uploadConfirmationId = str(response or '')
       a_record.log.append(self._make_log_entry(False, 'Uploaded'))
-      a_record.retriable = False
+
+      # These are the default values, but let's be explicit
+      a_record.autoRetry = False
+      a_record.retryCount = 0
 
       self.file.stats.uploadedRecordsSuccess += len(records)
       ss.success += len(records)
@@ -282,10 +281,7 @@ class BatchRecordUploader(Uploader):
       # ValidationError should not occur. ExecutionError is more likely.
       # Either way, the error applies to all the records if in batch mode
       upload_error = self._make_log_entry(True, str(exc),
-          typ=(protos.ProcessingLog.VALIDATION
-               if isinstance(exc, helpers.ValidationError)
-               else protos.ProcessingLog.EXECUTION),
-          functionId=upload_func.id)
+          error_code=exc.error_code, functionId=upload_func.id)
 
       # recentErrors and log will be empty because this is a representative
       # record. When updating, recentErrors should be replaced while log should
@@ -294,21 +290,20 @@ class BatchRecordUploader(Uploader):
       a_record.log.append(upload_error)
 
       a_record.status = protos.Record.UPLOAD_ERROR
-      a_record.retriable = getattr(exc, 'retriable', False)
+      a_record.autoRetry = getattr(exc, 'auto_retry', False)
 
       self.file.stats.uploadedRecordsError += len(records)
       ss.failure += len(records)
 
+    # Create an update_map which $sets most values but appends $log entries
+    # This is necessary since we're working on a representative record
+    update_map = bson_format.get_update_map(a_record,
+        ['status', 'uploadConfirmationId', 'autoRetry', 'recentErrors'],
+        ['log'])
+
     # The number of records in the "batch" determines the type of Update we
     # return, regardless of batch mode or function type. This is a probable
     # over-optimization so that we don't send UpdateManys with single updates
-    # Create an update_map which $sets most values but appends $log entries
-    # This is necessary since we're working on a representative record
-
-    update_map = bson_format.get_update_map(a_record,
-        ['status', 'uploadConfirmationId', 'retriable', 'recentErrors'],
-        ['log'])
-
     if len(records) == 1:
       return pymongo.UpdateOne({'_id': records[0].id}, update_map)
 

@@ -153,12 +153,13 @@ class RecordProcessor(abc.ABC):
     return None
 
   def _make_log_entry(self, error: bool, message: str,
-      typ: t.Optional['protos.ProcessingLog.LogType'] = None, **kwargs: t.Any
+      error_code: t.Optional['protos.ProcessingLog.ErrorCode'] = None,
+      **kwargs: t.Any
       ) -> protos.ProcessingLog:
     return protos.ProcessingLog(
       source=self.log_source,
       level=protos.ProcessingLog.ERROR if error else protos.ProcessingLog.INFO,
-      type=typ,
+      errorCode=error_code,
       time=bson_format.now(),
       message=message,
       **kwargs

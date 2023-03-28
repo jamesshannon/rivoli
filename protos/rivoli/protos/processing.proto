@@ -19,6 +19,7 @@ message File {
   uint32 updated = 5;
 
   Status status = 6;
+  uint32 lockKey = 21;
   bool requiresReview = 9;
 
   string fileTypeId = 7;
@@ -76,7 +77,8 @@ message Record {
   RecordTypeRef recordType = 3;
 
   Status status = 5;
-  bool retriable = 17;
+  bool autoRetry = 17;
+  uint32 retryCount = 18;
 
   string sharedKey = 11;
 
@@ -147,13 +149,14 @@ message ProcessingLog {
   LogSource source = 1;
 
   LogLevel level = 2;
-  LogType type = 3;
+  ErrorCode errorCode = 3;
 
   uint32 time = 4;
   string message = 5;
 
   string field = 6;
   string functionId = 7;
+
 
   enum LogSource {
     LOGSOURCE_UNKNOWN = 0;
@@ -173,12 +176,20 @@ message ProcessingLog {
     ERROR = 4;
   }
 
-  enum LogType {
-    LOGTYPE_UNKNOWN = 0;
+  enum ErrorCode {
+    ERRORCODE_UNKNOWN = 0;
 
-    VALIDATION = 1;
-    EXECUTION = 2;
-    UNEXPECTED = 3;
+    // HTTP status codes are 100 - 599 and would be considered execution errors
+
+    OTHER_VALIDATION_ERROR = 600;
+
+
+    OTHER_OPERATION_ERROR = 700;
+
+
+    OTHER_EXECUTION_ERROR = 800;
+    CONNECTION_ERROR = 801;
+    TIMEOUT_ERROR = 802;
   }
 }
 
