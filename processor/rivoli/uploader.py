@@ -298,17 +298,19 @@ class BatchRecordUploader(Uploader):
 
       self.file.stats.uploadedRecordsError += len(records)
       ss.failure += len(records)
-    finally:
-      # The number of records in the "batch" determines the type of Update we
-      # return, regardless of batch mode or function type. This is a probable
-      # over-optimization so that we don't send UpdateManys with single updates
-      # Create an update_map which $sets most values but appends $log entries
-      # This is necessary since we're working on a representative record
-      update_map = bson_format.get_update_map(a_record,
-          ['status', 'uploadConfirmationId', 'retriable', 'recentErrors'],
-          ['log'])
-      if len(records) == 1:
-        return pymongo.UpdateOne({'_id': records[0].id}, update_map)
-      else:
-        record_ids = [record.id for record in records]
-        return pymongo.UpdateMany({'_id': {'$in': record_ids}}, update_map)
+
+    # The number of records in the "batch" determines the type of Update we
+    # return, regardless of batch mode or function type. This is a probable
+    # over-optimization so that we don't send UpdateManys with single updates
+    # Create an update_map which $sets most values but appends $log entries
+    # This is necessary since we're working on a representative record
+
+    update_map = bson_format.get_update_map(a_record,
+        ['status', 'uploadConfirmationId', 'retriable', 'recentErrors'],
+        ['log'])
+
+    if len(records) == 1:
+      return pymongo.UpdateOne({'_id': records[0].id}, update_map)
+
+    record_ids = [record.id for record in records]
+    return pymongo.UpdateMany({'_id': {'$in': record_ids}}, update_map)
