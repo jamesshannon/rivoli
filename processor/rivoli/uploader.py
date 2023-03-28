@@ -1,4 +1,5 @@
 """ Uploader Module. """
+import time
 import typing as t
 
 import pymongo
@@ -9,7 +10,6 @@ from rivoli import admin_entities
 from rivoli import db
 from rivoli import protos
 from rivoli import record_processor
-from rivoli.utils import processing
 from rivoli.utils import tasks
 from rivoli.validation import handler
 from rivoli.validation import helpers
@@ -61,7 +61,10 @@ class Uploader(record_processor.DbRecordProcessor):
 
     self.functions = admin_entities.get_functions_by_ids(function_ids)
 
-    self._clear_stats('UPLOAD')
+    # don't clear stats because this might be a continuation.
+    # how to handle continuations? maybe check the status do some things if
+    # stutus is currently UPLOADING? But also what about a lock?
+    #self._clear_stats('UPLOAD')
     self._update_status_to_processing(protos.File.UPLOADING)
     self.file.times.uploadingStartTime = bson_format.now()
 
@@ -73,7 +76,7 @@ class Uploader(record_processor.DbRecordProcessor):
     # This will cause problems if we stop using validatedFields
     kwargs['sort'] = [('validatedFields.PORTFOLIO_ID', 1)]
     self._process_records(
-        self._get_all_records(protos.Record.VALIDATED, **kwargs))
+        self._get_all_records(protos.Record.VALIDATED, False, **kwargs))
 
     self.file.status = protos.File.UPLOADED
     self.file.times.uploadingEndTime = bson_format.now()
@@ -170,6 +173,8 @@ class BatchRecordUploader(Uploader):
 
     record_type: t.Optional[protos.RecordType] = None
 
+    last_file_update = time.time()
+
     try:
       for record in records:
         processed = self._process_upload(record)
@@ -177,7 +182,7 @@ class BatchRecordUploader(Uploader):
           continue
 
         # If we're in a batch then this needs to be the same as all previous
-        # recortypes. For now we assume it is because we don't allow batch
+        # RecordTypes. For now we assume it is because we don't allow batch
         # operations with > 1 recordType
         record_type = self.recordtypes_map[record.recordType]
 
@@ -197,6 +202,7 @@ class BatchRecordUploader(Uploader):
           # when to use LOGGER ?
           print('updating', len(pending_updates), 'documents')
           self.db.records.bulk_write(pending_updates, ordered=False)
+          self._update_file(['status', 'log', 'times', 'stats'])
           pending_updates.clear()
 
         # Add the ProcessedRecords to the pending list. We do this down here
@@ -222,6 +228,7 @@ class BatchRecordUploader(Uploader):
       if pending_updates:
         print('updating', len(pending_updates), 'documents')
         self.db.records.bulk_write(pending_updates, ordered=False)
+        self._update_file(['status', 'log', 'times', 'stats'])
 
 
   def _upload_records(self, recordtype: protos.RecordType,

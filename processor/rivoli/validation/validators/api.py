@@ -42,9 +42,11 @@ def _make_request(method: str, url: str, **kwargs: t.Any) -> t.Any:
     resp = requests.request(method, url, timeout=30, **kwargs)
     resp.raise_for_status()
   except (requests.exceptions.ConnectionError,
+          requests.exceptions.ReadTimeout,
           requests.exceptions.HTTPError) as exc:
     retriable = (isinstance(exc, requests.exceptions.ConnectionError)
-                 or exc.response.status_code in RETRIABLE_CODES)
+                 or (isinstance(exc, requests.exceptions.HTTPError)
+                     and exc.response.status_code in RETRIABLE_CODES))
     raise helpers.ExecutionError(str(exc), retriable)
 
   return resp.json()
@@ -65,11 +67,12 @@ def submit_record(record: helpers.RecordType) -> helpers.RecordType:
   print(record)
 
   try:
-
     resp = requests.post(url, data=record, timeout=10)
     resp.raise_for_status()
 
-  except (requests.exceptions.ConnectionError, ) as exc:
+  except (requests.exceptions.ConnectionError,
+          requests.exceptions.ReadTimeout) as exc:
+    # Are these really retriable? A read timeout might have completed its work
     raise helpers.ExecutionError(str(exc), True)
 
   except requests.exceptions.HTTPError as exc:
