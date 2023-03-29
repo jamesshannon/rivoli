@@ -57,6 +57,7 @@ message File {
     WAITING_APPROVAL_TO_UPLOAD = 50;
 
     UPLOADING = 55;
+    UPLOADING_PAUSED = 56;
     UPLOADED = 60;
 
     COMPLETED = 70;
@@ -182,6 +183,7 @@ message ProcessingLog {
     ERRORCODE_UNKNOWN = 0;
 
     // HTTP status codes are 100 - 599 and would be considered execution errors
+    reserved 100 to 599;
 
     OTHER_VALIDATION_ERROR = 600;
 

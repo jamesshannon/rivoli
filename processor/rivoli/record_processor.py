@@ -59,6 +59,9 @@ class RecordProcessor(abc.ABC):
       # But should we allow re-loading for any reason?
       print('Skip the loading because status could not be updated')
 
+    # The db was updated, now reflect that in the File message
+    self.file.MergeFrom(new_file)
+
   def _update_file(self, update_fields: list[str],
         status: t.Optional['protos.File.Status'] = None) -> None:
     """ Update the File record in the database. """

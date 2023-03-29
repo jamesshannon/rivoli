@@ -13,7 +13,6 @@
 </script>
 
 <div class="app">
-  <link rel="stylesheet" href="%sveltekit.assets%/global.css" />
   <Header platformName="Rivoli">
     <svelte:fragment slot="platform">
       <Logo class="header_logo" /> Rivoli

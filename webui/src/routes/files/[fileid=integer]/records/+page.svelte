@@ -35,17 +35,28 @@
   let retryModalOpen = false;
   let retryModalEnabled = false;
 
-  //let filter: any = { filter: { status: '' }, resultCount: 0 };
+  // These are values for the ProcessingLog.errorCode enum value. Ideally we'd
+  // use that generated enum, but in this case the value might be an HTTP status
+  // code (e.g., 502) which is not a defined enum value (though are reserved).
+  const processingLogErrorCodes = new Map([
+    [600, 'Validation Error'],
+    [700, 'Operation Error'],
+    [800, 'Excecutin Error'],
+    [801, 'Connection Error'],
+    [802, 'Timeout Error']
+  ]);
 
   class RecordsFilter {
     status: string = '';
+    errorCode: string = '';
 
     get filterObj(): { [key: string]: string } {
-      return { status: this.status };
+      return { status: this.status, errorCode: this.errorCode };
     }
 
     reset() {
       this.status = '';
+      this.errorCode = '';
     }
   }
 
@@ -109,16 +120,18 @@
   function renderLogList(logs: Array<any>) {
     let html = '<ul>';
     for (let log of logs) {
-      html += '<li>';
-      html += dateTime(log.time) + ' ' + escapeHTML(log.message);
-      html += '</li>';
+      html += `<li><h5>
+				${processingLogErrorCodes.get(log.errorCode) || log.errorCode || ''} -
+				<span>${dateTime(log.time)}</span>
+      </h5>
+			${escapeHTML(log.message)}</li>`;
     }
     return html + '</ul>';
   }
 
   function renderErrors(data, type: string, row) {
     if (type === 'display' || type === 'filter') {
-      // Only show recent errors for now...
+      // Only show recent errors in the table column
       if (row.recentErrors?.length) {
         return renderLogList(row.recentErrors);
       }
@@ -236,8 +249,8 @@
     // determine when Retry button is allowed. Only when status is selected and
     // UPLOAD_ERROR and file is not currently processing
   }
-  function filterStatusSelected(evt: CustomEvent) {
-    console.log('selected', evt.detail, filter.filter);
+  function filterStatusSelected() {
+    console.log('selected', filter.filterObj);
 
     // If the dropdown has items then the data table should be fully loaded
     myDataTable
@@ -263,13 +276,15 @@
 
     const response = await resp.json();
 
-    alert(JSON.stringify(response));
+    filter.reset();
+    filterStatusSelected();
     retryModalOpen = false;
+    alert(JSON.stringify(response));
   }
 
   $: {
     retryModalEnabled =
-      filter.status === Record_Status.UPLOAD_ERROR.valueOf().toString();
+      filter.status == Record_Status.UPLOAD_ERROR.valueOf().toString();
   }
 
   onMount(async () => {

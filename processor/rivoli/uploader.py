@@ -67,6 +67,7 @@ class Uploader(record_processor.DbRecordProcessor):
     #self._clear_stats('UPLOAD')
     self._update_status_to_processing(protos.File.UPLOADING)
     self.file.times.uploadingStartTime = bson_format.now()
+    self._update_file(['status', 'updated', 'times'])
 
     # when we're doing batch and there's a groupby key it would be good to
     # order by the groupby key, but ideally we'd copy that value into its own
@@ -171,6 +172,8 @@ class BatchRecordUploader(Uploader):
 
     record_type: t.Optional[protos.RecordType] = None
 
+    last_file_update = time.time()
+
     try:
       for record in records:
         processed = self._process_upload(record)
@@ -193,13 +196,16 @@ class BatchRecordUploader(Uploader):
           pending_uploads.clear()
           self._should_upload_batch = False
 
-        if len(pending_updates) >= self._max_pending_updates:
-          # when to update the File?
+        if (len(pending_updates) >= self._max_pending_updates
+            or time.time() > last_file_update + 30):
           # when to use LOGGER ?
           print('updating', len(pending_updates), 'documents')
           self.db.records.bulk_write(pending_updates, ordered=False)
-          self._update_file(['status', 'log', 'times', 'stats'])
           pending_updates.clear()
+
+          # Always update the file when updating records
+          self._update_file(['status', 'log', 'times', 'stats'])
+          last_file_update = time.time()
 
         # Add the ProcessedRecords to the pending list. We do this down here
         # because this record might start a new batch, and can't be part of

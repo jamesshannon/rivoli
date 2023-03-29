@@ -113,8 +113,10 @@ export async function POST({ url, params, request }) {
   log.message = `Reverted record status to VALIDATED on ${modified} records`;
   db.collection('files').updateOne(
     { _id: parseInt(fileId) },
-    { $addToSet: { log: log.toJson({ enumAsInteger: true }) } },
-    { $inc: { 'stats.uploadedRecordsError': -1 * modified } }
+    {
+      $addToSet: { log: log.toJson({ enumAsInteger: true }) },
+      $inc: { 'stats.uploadedRecordsError': -1 * modified }
+    }
   );
 
   return json({ status: 'success' });
