@@ -2,8 +2,7 @@
 </script>
 
 <svelte:head>
-	<title>Home</title>
-	<meta name="description" content="Rivoli" />
+	<title>Rivoli - Home</title>
 </svelte:head>
 
 <section>

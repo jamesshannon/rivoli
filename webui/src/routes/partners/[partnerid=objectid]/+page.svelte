@@ -37,15 +37,15 @@
 </script>
 
 <svelte:head>
-	<title>Home</title>
-	<meta name="description" content="Svelte demo app" />
+	<title>Edit Partner</title>
 </svelte:head>
 
 
+<h1>{ partner.name }</h1>
 <Breadcrumb noTrailingSlash>
   <BreadcrumbItem href="/">Home</BreadcrumbItem>
   <BreadcrumbItem href="/partners">Partners</BreadcrumbItem>
-  <BreadcrumbItem isCurrentPage>{ partner.name }</BreadcrumbItem>
+  <BreadcrumbItem isCurrentPage>Edit</BreadcrumbItem>
 </Breadcrumb>
 
 <div id="notification">
