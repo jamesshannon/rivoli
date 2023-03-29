@@ -35,56 +35,11 @@ def upload(file_id: int) -> None:
 
   return None
 
-class Uploader(record_processor.DbRecordProcessor):
+class BatchRecordUploader(record_processor.DbRecordProcessor):
+  """ Class to upload records. """
   log_source = protos.ProcessingLog.UPLOADER
   update_fields = ['status', 'stats', 'log']
 
-  """ Class to upload records. """
-  def __init__(self, file: protos.File, partner: protos.Partner,
-        filetype: protos.FileType) -> None:
-    super().__init__(file, partner, filetype)
-
-    self.functions: dict[str, protos.Function]
-
-  def upload(self):
-    # create a map of record types -> upload functions
-    # loop through all the records. work per record type
-    # skip if no upload function exists. maybe mark in log
-
-    function_ids: set[str] = set()
-
-    for recordtype in self.filetype.recordTypes:
-      if recordtype.successCheck:
-        function_ids.add(recordtype.successCheck.functionId)
-      if recordtype.upload:
-        function_ids.add(recordtype.upload.functionId)
-
-    self.functions = admin_entities.get_functions_by_ids(function_ids)
-
-    # don't clear stats because this might be a continuation.
-    # how to handle continuations? maybe check the status do some things if
-    # stutus is currently UPLOADING? But also what about a lock?
-    #self._clear_stats('UPLOAD')
-    self._update_status_to_processing(protos.File.UPLOADING)
-    self.file.times.uploadingStartTime = bson_format.now()
-    self._update_file(['status', 'updated', 'times'])
-
-    # when we're doing batch and there's a groupby key it would be good to
-    # order by the groupby key, but ideally we'd copy that value into its own
-    # column during the .. validation? step?
-    kwargs = {}
-    # IF STATEMENT
-    # This will cause problems if we stop using validatedFields
-    kwargs['sort'] = [('validatedFields.PORTFOLIO_ID', 1)]
-    self._process_records(
-        self._get_all_records(protos.Record.VALIDATED, False, **kwargs))
-
-    self.file.status = protos.File.UPLOADED
-    self.file.times.uploadingEndTime = bson_format.now()
-    self.file.log.append(self._make_log_entry(False, 'Uploaded records'))
-    self._update_file(['status', 'log', 'times', 'stats'])
-
-class BatchRecordUploader(Uploader):
   def __init__(self, file: protos.File, partner: protos.Partner,
       filetype: protos.FileType) -> None:
     super().__init__(file, partner, filetype)
@@ -111,6 +66,78 @@ class BatchRecordUploader(Uploader):
     if not self._is_batch and len(self.filetype.recordTypes) > 1:
       raise ValueError(('Batches not supported when FileType has more than one '
                         'RecordType'))
+
+  def upload(self):
+    # create a map of record types -> upload functions
+    # loop through all the records. work per record type
+    # skip if no upload function exists. maybe mark in log
+
+    function_ids: set[str] = set()
+
+    for recordtype in self.filetype.recordTypes:
+      if recordtype.successCheck:
+        function_ids.add(recordtype.successCheck.functionId)
+      if recordtype.upload:
+        function_ids.add(recordtype.upload.functionId)
+
+    self.functions = admin_entities.get_functions_by_ids(function_ids)
+
+    # don't clear stats because this might be a continuation.
+    # how to handle continuations? maybe check the status do some things if
+    # stutus is currently UPLOADING? But also what about a lock?
+    #self._clear_stats('UPLOAD')
+    self._update_status_to_processing(protos.File.UPLOADING)
+    self.file.times.uploadingStartTime = bson_format.now()
+    self._update_file(['status', 'updated', 'times'])
+
+    # When we're doing batch and there's a groupby key it would be good to
+    # order by the groupby key, but ideally we'd copy that value into its own
+    # column during the .. validation? step?
+    kwargs = {}
+    if self._groupby_field:
+      # This will need to be modified if we stop using validatedFields
+      kwargs['sort'] = [(f'validatedFields.{self._groupby_field}', 1)]
+
+    self._process_records(
+        self._get_all_records(protos.Record.VALIDATED, False, **kwargs))
+
+  def _end_upload(self):
+    """ Determine next steps, such as marking the file as complete. """
+    if True: # graceful restart
+      self.file.status = protos.File.UPLOADING_RESTARTING
+      self.file.updated = bson_format.now()
+
+      self._update_file(['status', 'updated'])
+
+      # schedule a new task
+      return
+
+    if True: # Records to retry
+      # If we just use the internal count rather than a file count then
+      # this will break after retry.
+
+      self.file.status = protos.File.UPLOADING_RETRY_PAUSE
+      self.file.log.append(self._make_log_entry(False, 'Uploaded records'))
+      self._update_file(['status', 'log', 'times', 'stats'])
+      # schedule new task
+      return
+
+    # Uploading is finished. What's the next step?
+    # For now the file goes to completed. In the future we might move to a
+    # COORECT_ERRORS state or something
+    self.file.status = protos.File.COMPLETED
+    self.file.times.uploadingEndTime = bson_format.now()
+    self.file.log.append(self._make_log_entry(False, 'Uploaded records'))
+    self._update_file(['status', 'log', 'times', 'stats'])
+
+  def _retry_retriable_records(self):
+    """ Reset retriable records to VALIDATED status """
+    # Ignore records with > 4 retries. Backoff strategy?
+
+    # 1) If pause, then set status and create a new task immediately
+    # 1) Retry records, then set to retry_pause and create a new task
+    # 2) Set to "pause" then create a new task
+    # or 3) set to done and end task
 
   def _process_one_record(self, record: protos.Record
        ) -> t.Optional[pymongo.UpdateOne]: ...
