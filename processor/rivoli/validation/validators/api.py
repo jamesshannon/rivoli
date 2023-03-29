@@ -8,12 +8,10 @@ import requests.exceptions
 from rivoli import protos
 from rivoli.validation import helpers
 
-# How to differentiate between retriable and auto-retry?
-# E.g., 401 (auth) should be retriable,, but only after manual fixing
-# In that case maybe retriable means auto-retry and all other records are
-# retriable? But then what about fatal errors like "API responded that this is
-# invalid"? Retry / retriable / fatal ?
-RETRIABLE_CODES = (408, 429, 500, 502, 503, 504)
+# These codes allow for an automatic retry.
+AUTORETRY_CODES: t.Sequence[t.Union[int, 'protos.ProcessingLog.ErrorCode']] = (
+    408, 429, 500, 502, 503, 504,
+    protos.ProcessingLog.CONNECTION_ERROR, protos.ProcessingLog.TIMEOUT_ERROR)
 
 # def _make_request(url: str) -> dict[str, str]:
 #   url = f'https://{service.hostname}{path}'
@@ -42,10 +40,20 @@ def _make_request(method: str, url: str, **kwargs: t.Any) -> t.Any:
     resp = requests.request(method, url, timeout=30, **kwargs)
     resp.raise_for_status()
   except (requests.exceptions.ConnectionError,
+          requests.exceptions.ReadTimeout,
           requests.exceptions.HTTPError) as exc:
-    retriable = (isinstance(exc, requests.exceptions.ConnectionError)
-                 or exc.response.status_code in RETRIABLE_CODES)
-    raise helpers.ExecutionError(str(exc), retriable)
+    error_code: t.Optional[t.Union[protos.ProcessingLog.ErrorCode, int]] = None
+
+    if isinstance(exc, requests.exceptions.HTTPError):
+      error_code = exc.response.status_code
+    elif isinstance(exc, requests.exceptions.ConnectionError):
+      error_code = protos.ProcessingLog.CONNECTION_ERROR
+    elif isinstance(exc, requests.exceptions.ReadTimeout):
+      error_code = protos.ProcessingLog.TIMEOUT_ERROR
+
+    autoretry = error_code in AUTORETRY_CODES
+
+    raise helpers.ExecutionError(str(exc), error_code, autoretry)
 
   return resp.json()
 
@@ -65,11 +73,12 @@ def submit_record(record: helpers.RecordType) -> helpers.RecordType:
   print(record)
 
   try:
-
     resp = requests.post(url, data=record, timeout=10)
     resp.raise_for_status()
 
-  except (requests.exceptions.ConnectionError, ) as exc:
+  except (requests.exceptions.ConnectionError,
+          requests.exceptions.ReadTimeout) as exc:
+    # Are these really retriable? A read timeout might have completed its work
     raise helpers.ExecutionError(str(exc), True)
 
   except requests.exceptions.HTTPError as exc:

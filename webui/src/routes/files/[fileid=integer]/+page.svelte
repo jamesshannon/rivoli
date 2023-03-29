@@ -1,85 +1,101 @@
 <script lang="ts">
-  import "carbon-components-svelte/css/g10.css";
+  import 'carbon-components-svelte/css/g10.css';
 
   import {
-    Breadcrumb, BreadcrumbItem,
-    Grid, Row, Column,
-    ProgressIndicator, ProgressStep,
-    Tag,
-  } from "carbon-components-svelte";
+    Button,
+    Breadcrumb,
+    BreadcrumbItem,
+    Grid,
+    Row,
+    Column,
+    ProgressIndicator,
+    ProgressStep,
+    Tag
+  } from 'carbon-components-svelte';
 
   import type { PageData } from './$types';
   import { invalidateAll } from '$app/navigation';
 
-  import FileStatus from "$lib/components/FileStatus.svelte";
-  import ProcessingLogsTable from "$lib/components/ProcessingLogsTable.svelte";
+  import FileStatus from '$lib/components/FileStatus.svelte';
+  import ProcessingLogsTable from '$lib/components/ProcessingLogsTable.svelte';
 
+  import { dateTime } from '$lib/helpers/utils';
+  import { statuses } from '$lib/helpers/files';
+  import { onMount } from 'svelte';
 
-  import {dateTime} from "$lib/helpers/utils";
-  import {statuses} from "$lib/helpers/files";
-
-	import { type Partner, FileType } from "$lib/protos/config_pb";
-	import { File_Status, File } from "$lib/protos/processing_pb";
-
+  import { type Partner, FileType } from '$lib/protos/config_pb';
+  import { File_Status, File } from '$lib/protos/processing_pb';
 
   export let data: PageData;
-  let file = File.fromJson(data.file as any as JsonValue);
+  let file: File;
   const filetype = FileType.fromJson(data.fileType as any as JsonValue);
+  function setFileFromData() {
+    file = File.fromJson(data.file as any as JsonValue);
+  }
+  async function refreshFileData() {
+    // invalidate($page.url) does not work, so we invalidate everything
+    await invalidateAll();
+    setFileFromData();
+  }
+  setFileFromData();
 
+  onMount(() => {
+    refreshFile();
+  });
 
+  function refreshFile() {
+    const refresh_time = statuses.get(file.status)?.working ? 30_000 : 120_000;
+    setTimeout(() => {
+      refreshFileData();
+      refreshFile();
+    }, refresh_time);
+  }
 
-  // onMount(() => {
-	// 	setTimeout(() => {
-	// 		refreshFile();
-	// 	}, 1000);
+  function bufferToHex(buffer) {
+    return [...new Uint8Array(buffer)]
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
 
-	// });
+  function fmtNum(num: number | BigInt | undefined) {
+    return num ? num.toLocaleString() : 0;
+  }
 
-  // function refreshFile() {
-  //   const refresh_time =  10000; //statuses.get(file.status)?.working ? 10000 : 120000;
-  //   setTimeout(() => {
-  //     console.log('refreshing');
-  //     invalidateAll();
-  //     refreshFile();
-  //   }, refresh_time);
-  // }
+  // Maps File statuses to the "current" index on the progress bar.
+  // Only the 'ing' statuses get a "current" designator
+  const currentIndexMap = new Map([
+    [File_Status.LOADING, 1],
+    [File_Status.PARSING, 2],
+    [File_Status.VALIDATING, 3],
+    [File_Status.UPLOADING, 4]
+  ]);
 
+  let currentIndex: number;
+  // Set currentIndex really high, otherwise the first step is current
+  $: currentIndex = currentIndexMap.get(file.status) || 20;
 
-function bufferToHex (buffer) {
-  return [...new Uint8Array (buffer)]
-    .map (b => b.toString (16).padStart (2, "0")).join ("");
-}
-
-function fmtNum(num: number | undefined) {
-  return (num) ? num.toLocaleString() : 0;
-}
-
-// Maps File statuses to the "current" index on the progress bar.
-// Only the 'ing' statuses get a "current" designator
-const currentIndexMap = new Map([
-  [File_Status.LOADING, 1],
-  [File_Status.PARSING, 2],
-  [File_Status.VALIDATING, 3],
-  [File_Status.UPLOADING, 4],
-]);
-
-// Set currentIndex really high, otherwise the first step is current
-const currentIndex = currentIndexMap.get(file.status) || 20;
-
+  import { invalidate } from '$app/navigation';
 </script>
 
 <Breadcrumb noTrailingSlash>
   <BreadcrumbItem href="/">Home</BreadcrumbItem>
   <BreadcrumbItem href="/files">File Processing</BreadcrumbItem>
-  <BreadcrumbItem href="/files/{ file.id }" isCurrentPage>{ file.name }</BreadcrumbItem>
+  <BreadcrumbItem href="/files/{file.id}" isCurrentPage
+    >{file.name}</BreadcrumbItem
+  >
 </Breadcrumb>
 
-<br><br>
+<br /><br />
 <h4>
   <a href="/partners/{file.partnerId}">{data.partner?.name}</a> -
-  <a href="/partners/{file.partnerId}/filetypes/{file.fileTypeId}">{data.fileType?.name}</a>
+  <a href="/partners/{file.partnerId}/filetypes/{file.fileTypeId}"
+    >{data.fileType?.name}</a
+  >
 </h4>
-<h2>{file.name} <span class="id">(File ID: {file.id})</span> {#if file.isDevelopment}<Tag>Development File</Tag>{/if}</h2>
+<h2>
+  {file.name} <span class="id">(File ID: {file.id})</span>
+  {#if file.isDevelopment}<Tag>Development File</Tag>{/if}
+</h2>
 <!-- <FileStatus {file} /> -->
 
 <div class="file_details">
@@ -92,8 +108,10 @@ const currentIndex = currentIndexMap.get(file.status) || 20;
           Approximate Rows: {fmtNum(file.stats?.approximateRows)}<br />
         {/if}
       </ProgressStep>
-      <ProgressStep complete={file.status >= File_Status.LOADING}
-          description="Read file, detect record type(s), and load individual records into database">
+      <ProgressStep
+        complete={file.status >= File_Status.LOADING}
+        description="Read file, detect record type(s), and load individual records into database"
+      >
         <h5>Load Records</h5>
         {#if file.status >= File_Status.LOADING}
           {dateTime(file.times.loadingStartTime)}<br />
@@ -101,8 +119,10 @@ const currentIndex = currentIndexMap.get(file.status) || 20;
           Failed Records: {fmtNum(file.stats?.loadedRecordsError)}<br />
         {/if}
       </ProgressStep>
-      <ProgressStep complete={file.status >= File_Status.PARSING}
-          description="Parse fields from loaded records based on record format">
+      <ProgressStep
+        complete={file.status >= File_Status.PARSING}
+        description="Parse fields from loaded records based on record format"
+      >
         <h5>Parse Records</h5>
         {#if file.status >= File_Status.PARSING}
           {dateTime(file.times?.parsingStartTime)}<br />
@@ -110,19 +130,26 @@ const currentIndex = currentIndexMap.get(file.status) || 20;
           Failed Records: {fmtNum(file.stats?.parsedRecordsError)}<br />
         {/if}
       </ProgressStep>
-      <ProgressStep complete={file.status >= File_Status.VALIDATING}
-          description="Validate individual fields and entire records">
+      <ProgressStep
+        complete={file.status >= File_Status.VALIDATING}
+        description="Validate individual fields and entire records"
+      >
         <h5>Validate Records</h5>
         {#if file.status >= File_Status.VALIDATING}
           {dateTime(file.times?.validatingStartTime)}<br />
-          Successful Records: {fmtNum(file.stats?.validatedRecordsSuccess)}<br />
+          Successful Records: {fmtNum(file.stats?.validatedRecordsSuccess)}<br
+          />
           Failed Records: {fmtNum(file.stats?.validatedRecordsError)}<br />
-          Total Validation Errors: {fmtNum((file.stats?.validationErrors || 0) +
-              (file.stats?.validationExecutionErrors || 0))}
+          Total Validation Errors: {fmtNum(
+            (file.stats?.validationErrors || 0) +
+              (file.stats?.validationExecutionErrors || 0)
+          )}
         {/if}
       </ProgressStep>
-      <ProgressStep complete={file.status >= File_Status.UPLOADING}
-          description="Upload records to final destination">
+      <ProgressStep
+        complete={file.status >= File_Status.UPLOADING}
+        description="Upload records to final destination"
+      >
         <h5>Upload Records</h5>
         {#if file.status >= File_Status.UPLOADING}
           {dateTime(file.times?.uploadingStartTime)}<br />
@@ -137,7 +164,7 @@ const currentIndex = currentIndexMap.get(file.status) || 20;
     <Row>
       <Column>
         <h5>Size</h5>
-        {file.sizeBytes / 1000n} KB
+        {fmtNum(file.sizeBytes / 1000n)} KB
       </Column>
       <Column>
         <h5>MD5 Hash</h5>
@@ -148,28 +175,25 @@ const currentIndex = currentIndexMap.get(file.status) || 20;
       <Column>
         <h5>Tags</h5>
         <ul>
-        {#each Object.entries(file.tags) as [key, value]}
-          <li><strong>{key}</strong> = {value}</li>
-        {/each}
-        <ul>
-      </Column>
+          {#each Object.entries(file.tags) as [key, value]}
+            <li><strong>{key}</strong> = {value}</li>
+          {/each}
+          <ul />
+        </ul></Column
+      >
       <Column>
-        {#if file.headerColumns }
+        {#if file.headerColumns}
           <h5>Detected Header Columns</h5>
           {file.headerColumns.join(', ')}
         {/if}
       </Column>
     </Row>
-
   </Grid>
 </div>
-
 
 <ProcessingLogsTable bind:logs={file.log} />
 
 <style>
-
-
   .id {
     font-size: 50%;
   }

@@ -59,6 +59,9 @@ class RecordProcessor(abc.ABC):
       # But should we allow re-loading for any reason?
       print('Skip the loading because status could not be updated')
 
+    # The db was updated, now reflect that in the File message
+    self.file.MergeFrom(new_file)
+
   def _update_file(self, update_fields: list[str],
         status: t.Optional['protos.File.Status'] = None) -> None:
     """ Update the File record in the database. """
@@ -153,12 +156,13 @@ class RecordProcessor(abc.ABC):
     return None
 
   def _make_log_entry(self, error: bool, message: str,
-      typ: t.Optional['protos.ProcessingLog.LogType'] = None, **kwargs: t.Any
+      error_code: t.Optional['protos.ProcessingLog.ErrorCode'] = None,
+      **kwargs: t.Any
       ) -> protos.ProcessingLog:
     return protos.ProcessingLog(
       source=self.log_source,
       level=protos.ProcessingLog.ERROR if error else protos.ProcessingLog.INFO,
-      type=typ,
+      errorCode=error_code,
       time=bson_format.now(),
       message=message,
       **kwargs

@@ -10,13 +10,18 @@ RecordType = dict[str, str]
 
 class ValidationError(ValueError):
   """ A validation error which is raised and saved to the Record. """
+  error_code = protos.ProcessingLog.OTHER_VALIDATION_ERROR
 
 class ExecutionError(RuntimeError):
   """ An execution error which is raised and saved to the Record. """
-  def __init__(self, msg: str, retriable: bool = False) -> None:
+  def __init__(self, msg: str,
+      error_code: t.Union['protos.ProcessingLog.ErrorCode', int] =
+        protos.ProcessingLog.OTHER_EXECUTION_ERROR,
+      auto_retry: bool = False) -> None:
     super().__init__(msg)
 
-    self.retriable = retriable
+    self.error_code = error_code
+    self.auto_retry = auto_retry
 
 @dataclasses.dataclass
 class ProcessedRecord():
