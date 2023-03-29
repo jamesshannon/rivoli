@@ -328,6 +328,8 @@ class BatchRecordUploader(record_processor.DbRecordProcessor):
       self.file.stats.uploadedRecordsError += len(records)
       ss.failure += len(records)
 
+      self.retriable_records += len(records) if a_record.autoRetry else 0
+
     # Create an update_map which $sets most values but appends $log entries
     # This is necessary since we're working on a representative record
     update_map = bson_format.get_update_map(a_record,
