@@ -1,7 +1,9 @@
 #!/bin/bash
 
 # Fail hard
-rm -rf ./rivoli/protos/*_pb2*
-rm -rf ./rivoli/protos/__pycache__
+rm -rf ./src/rivoli/protos/*_pb2*
+rm -rf ./src/rivoli/protos/__pycache__
 
-python -m grpc_tools.protoc --proto_path=../protos/rivoli --pyi_out=./rivoli --python_out=./rivoli ../protos/rivoli/protos/*
+python -m grpc_tools.protoc --proto_path=../protos/rivoli \
+  --pyi_out=./src/rivoli --python_out=./src/rivoli \
+  ../protos/rivoli/protos/*
