@@ -47,6 +47,9 @@ class Validator(record_processor.DbRecordProcessor):
       filetype: protos.FileType) -> None:
     super().__init__(file, partner, filetype)
 
+    self.errors: list[protos.ProcessingLog] = []
+    self.configuration_error: t.Optional[protos.ProcessingLog]
+
     # Dict in the form of dct[RecordTypeId, dct[FieldTypeId, functionconfigs]
     self.field_validations: dict[int, dict[str, list[protos.FunctionConfig]]] = \
         collections.defaultdict(lambda: collections.defaultdict(list))
@@ -93,8 +96,9 @@ class Validator(record_processor.DbRecordProcessor):
   def _process_one_record(self, record: protos.Record
       ) -> t.Optional[pymongo.UpdateOne]:
     validated_fields: dict[str, str] = {}
-    validation_errors: list[protos.ProcessingLog] = []
-    execution_errors: list[protos.ProcessingLog] = []
+
+    self.errors.clear()
+    self.configuration_error = None
 
     recordtype = record.recordType
 
@@ -117,24 +121,11 @@ class Validator(record_processor.DbRecordProcessor):
       ss_field.input += 1
 
       for cfg in self.field_validations[recordtype][field_name]:
-        validator = self.functions[cfg.functionId]
-        try:
-          value = handler.call_function(protos.Function.FIELD_VALIDATION, cfg,
-              validator, value)
-          ss_field.success += 1
-        except (helpers.ValidationError, helpers.ExecutionError) as exc:
-          log = self._make_log_entry(True, str(exc), field=field_name,
-              functionId=validator.id)
+        success, value = self._call_function(protos.Function.FIELD_VALIDATION,
+            cfg, value, field_name)
 
-          if isinstance(exc, helpers.ValidationError):
-            log.type = protos.ProcessingLog.VALIDATION
-            validation_errors.append(log)
-          else:
-            log.type = protos.ProcessingLog.EXECUTION
-            execution_errors.append(log)
-
+        if not success:
           ss_field.failure += 1
-
           # No additional validations for this field
           break
 
@@ -144,32 +135,23 @@ class Validator(record_processor.DbRecordProcessor):
     # we need to unset the previous values
 
     # Only do record validations if all fields validated successfully
-    if not validation_errors and not execution_errors:
+    if not self.errors:
       for cfg in self.recordtypes_map[recordtype].validations:
-        validator = self.functions[cfg.functionId]
-        try:
-          validated_fields = t.cast(dict[str, str], handler.call_function(
-              protos.Function.RECORD_VALIDATION, cfg, validator,
-              validated_fields))
-        except (helpers.ValidationError, helpers.ExecutionError) as exc:
-          log = self._make_log_entry(True, str(exc), functionId=validator.id)
+        success, result = self._call_function(protos.Function.RECORD_VALIDATION,
+            cfg, validated_fields)
 
-          if isinstance(exc, helpers.ValidationError):
-            log.type = protos.ProcessingLog.VALIDATION
-            validation_errors.append(log)
-          else:
-            log.type = protos.ProcessingLog.EXECUTION
-            execution_errors.append(log)
-
+        if not success:
           # No additional validations for this record
           break
 
-    # Clear the *record*-level validation errors, in case we're re-validating
-    # this record
+        validated_fields = t.cast(dict[str, str], result)
+
+    # Clear the *record*-level recent validation errors, in case we're
+    # re-validating this record
     del record.recentErrors[:]
     record.validatedFields.clear()
 
-    if not validation_errors and not execution_errors:
+    if not self.errors:
       # No errors for this Record.
       # Update Record with the validated_fields, which might be different from
       # parsed_fields, set status and add item to the log
@@ -188,17 +170,40 @@ class Validator(record_processor.DbRecordProcessor):
       # Update Record with the errors, set the status, and add items to the logs
       self.file.stats.validatedRecordsError += 1
 
-      self.file.stats.validationErrors += len(validation_errors)
-      self.file.stats.validationExecutionErrors += len(execution_errors)
-
       record.status = record.VALIDATION_ERROR
       # Add errors to the permanent log and also the recentErrors, which was
       # recently cleared
-      record.log.extend(validation_errors + execution_errors)
-      record.recentErrors.extend(validation_errors + execution_errors)
+      record.log.extend(self.errors)
+      record.recentErrors.extend(self.errors)
 
       ss.failure += 1
 
     # update the record
     return self._make_update(record,
         ['status', 'validatedFields', 'log', 'recentErrors'])
+
+  def _call_function(self, typ: 'protos.Function.FunctionType',
+      cfg: 'protos.FunctionConfig', value: t.Union[str, dict[str, str]],
+      field_name: str = '') -> t.Tuple[bool, t.Union[str, dict[str, str]]]:
+    """ Call a validation function, capture exceptions, and return result. """
+    validator = self.functions[cfg.functionId]
+    try:
+      result = handler.call_function(typ, cfg, validator, value)
+
+      return (True, result)
+
+    except (helpers.ValidationError, helpers.ExecutionError,
+            helpers.ConfigurationError) as exc:
+      log = self._make_log_entry(True, str(exc), field=field_name,
+          functionId=validator.id, error_code=exc.error_code)
+      self.errors.append(log)
+
+      if isinstance(exc, helpers.ValidationError):
+        self.file.stats.validationErrors += 1
+      elif isinstance(exc, helpers.ExecutionError):
+        self.file.stats.validationExecutionErrors += 1
+      else: # ConfigurationError
+        # No stats to update
+        self.configuration_error = log
+
+      return (False, '')

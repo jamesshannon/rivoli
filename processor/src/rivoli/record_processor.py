@@ -1,8 +1,6 @@
 import abc
-import base64
 import itertools
 import re
-import time
 import typing as t
 
 import pymongo
@@ -156,7 +154,8 @@ class RecordProcessor(abc.ABC):
     return None
 
   def _make_log_entry(self, error: bool, message: str,
-      error_code: t.Optional['protos.ProcessingLog.ErrorCode'] = None,
+      error_code: t.Optional[t.Union['protos.ProcessingLog.ErrorCode', int]] =
+          None,
       **kwargs: t.Any
       ) -> protos.ProcessingLog:
     return protos.ProcessingLog(
@@ -195,6 +194,19 @@ class DbRecordProcessor(RecordProcessor):
         for record in records_chunk:
           bulk_writes.append(self._process_one_record(record))
 
+          if False: # config error
+            # Set some File fields
+            break
+            pass
+
+      except helpers.ConfigurationError as exc:
+        # Configuration errors are handled at this level because we don't want
+        # to continue validating (or uploading?) after a configuration error
+        # Add ConfigurationError to the file and shut down cleanly
+        # Signal to caller not to assume the processing was successful
+        print('got configuration error', exc)
+        break
+
       except Exception as exc:
         # LOGGER raising exception
         #  provide info on most recent record
@@ -215,6 +227,11 @@ class DbRecordProcessor(RecordProcessor):
 
         self.db.files.update_one(
           *bson_format.get_update_args(self.file, file_update_fields))
+
+        if False: #config error
+          # break out of while loop. make sure caller doesn't update status
+          # bubble up exception or .. ?
+          break
 
   @abc.abstractmethod
   def _process_one_record(self, record: protos.Record
