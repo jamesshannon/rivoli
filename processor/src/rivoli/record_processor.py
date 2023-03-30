@@ -9,8 +9,6 @@ from rivoli import db
 from rivoli import protos
 from rivoli.protobson import bson_format
 
-from rivoli.validation import helpers
-
 class RecordProcessor(abc.ABC):
   """ Abstract class to handle processing records in files or database. """
   log_source: protos.ProcessingLog.LogSource
@@ -28,6 +26,8 @@ class RecordProcessor(abc.ABC):
     self.db = db.get_db()
 
     self.record_prefix: int
+
+    self.unhandled_exception: t.Optional[Exception]
 
   def _update_status_to_processing(self, new_status: protos.File.Status,
       required_status: t.Optional['protos.File.Status'] = None):
@@ -194,24 +194,22 @@ class DbRecordProcessor(RecordProcessor):
         for record in records_chunk:
           bulk_writes.append(self._process_one_record(record))
 
-          if False: # config error
-            # Set some File fields
-            break
-            pass
+          if self.unhandled_exception:
+            raise self.unhandled_exception
 
-      except helpers.ConfigurationError as exc:
+      except Exception as exc:
         # Configuration errors are handled at this level because we don't want
         # to continue validating (or uploading?) after a configuration error
         # Add ConfigurationError to the file and shut down cleanly
         # Signal to caller not to assume the processing was successful
-        print('got configuration error', exc)
-        break
 
-      except Exception as exc:
         # LOGGER raising exception
         #  provide info on most recent record
         #  maybe write the error to the record, or the file?
         print('unhandled exception')
+        self.file.status = protos.File.VALIDATED
+        self.file.log.append(self._make_log_entry(True, str(exc)))
+
         raise exc
 
       finally:
@@ -227,11 +225,6 @@ class DbRecordProcessor(RecordProcessor):
 
         self.db.files.update_one(
           *bson_format.get_update_args(self.file, file_update_fields))
-
-        if False: #config error
-          # break out of while loop. make sure caller doesn't update status
-          # bubble up exception or .. ?
-          break
 
   @abc.abstractmethod
   def _process_one_record(self, record: protos.Record

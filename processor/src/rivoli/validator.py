@@ -48,7 +48,6 @@ class Validator(record_processor.DbRecordProcessor):
     super().__init__(file, partner, filetype)
 
     self.errors: list[protos.ProcessingLog] = []
-    self.configuration_error: t.Optional[protos.ProcessingLog]
 
     # Dict in the form of dct[RecordTypeId, dct[FieldTypeId, functionconfigs]
     self.field_validations: dict[int, dict[str, list[protos.FunctionConfig]]] = \
@@ -80,7 +79,10 @@ class Validator(record_processor.DbRecordProcessor):
 
     # This will not (currently) return records which need to be re-validated.
     # protos.Record.PARSED
-    self._process_records(self._get_all_records())
+    try:
+      self._process_records(self._get_all_records())
+    except Exception as exc:
+      pass
 
     # Need to decide how to move onto the next step. What is the status if >0
     # Records failed validation? Probably still VALIDATED?
@@ -98,7 +100,6 @@ class Validator(record_processor.DbRecordProcessor):
     validated_fields: dict[str, str] = {}
 
     self.errors.clear()
-    self.configuration_error = None
 
     recordtype = record.recordType
 
@@ -185,25 +186,28 @@ class Validator(record_processor.DbRecordProcessor):
   def _call_function(self, typ: 'protos.Function.FunctionType',
       cfg: 'protos.FunctionConfig', value: t.Union[str, dict[str, str]],
       field_name: str = '') -> t.Tuple[bool, t.Union[str, dict[str, str]]]:
-    """ Call a validation function, capture exceptions, and return result. """
+    """ Call a validation function, handle exceptions, and return result. """
     validator = self.functions[cfg.functionId]
     try:
       result = handler.call_function(typ, cfg, validator, value)
 
       return (True, result)
 
-    except (helpers.ValidationError, helpers.ExecutionError,
-            helpers.ConfigurationError) as exc:
+    except Exception as exc: # type: ignore=broad-exception-caught
+      error_code = getattr(exc, 'error_code', '')
+
       log = self._make_log_entry(True, str(exc), field=field_name,
-          functionId=validator.id, error_code=exc.error_code)
+          functionId=validator.id, error_code=error_code)
       self.errors.append(log)
 
       if isinstance(exc, helpers.ValidationError):
         self.file.stats.validationErrors += 1
       elif isinstance(exc, helpers.ExecutionError):
         self.file.stats.validationExecutionErrors += 1
-      else: # ConfigurationError
-        # No stats to update
-        self.configuration_error = log
+      else: # ConfigurationError or other Exception
+        # No stats to update. Set the instance method to this exception so that
+        # it can be handled later
+        self.file.stats.validationExecutionErrors += 1
+        self.unhandled_exception = exc
 
       return (False, '')
