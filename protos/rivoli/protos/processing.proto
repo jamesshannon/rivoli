@@ -195,6 +195,8 @@ message ProcessingLog {
     OTHER_EXECUTION_ERROR = 800;
     CONNECTION_ERROR = 801;
     TIMEOUT_ERROR = 802;
+
+    OTHER_CONFIGURATION_ERROR = 900;
   }
 }
 

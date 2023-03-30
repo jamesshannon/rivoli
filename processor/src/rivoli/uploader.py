@@ -67,6 +67,9 @@ class BatchRecordUploader(record_processor.DbRecordProcessor):
       raise ValueError(('Batches not supported when FileType has more than one '
                         'RecordType'))
 
+    # Retriable count is not part of the file.stats, so we track separately
+    self._retriable_records = 0
+
   def upload(self):
     # create a map of record types -> upload functions
     # loop through all the records. work per record type
@@ -103,23 +106,54 @@ class BatchRecordUploader(record_processor.DbRecordProcessor):
 
   def _end_upload(self):
     """ Determine next steps, such as marking the file as complete. """
-    if True: # graceful restart
-      self.file.status = protos.File.UPLOADING_RESTARTING
-      self.file.updated = bson_format.now()
-
-      self._update_file(['status', 'updated'])
-
-      # schedule a new task
-      return
-
-    if True: # Records to retry
+    # Resetting retriable records should only occur when file is otherwise
+    # complete
+    if self._retriable_records: # Records to retry
       # If we just use the internal count rather than a file count then
       # this will break after retry.
+      # Update the records. This should mirror the webui files/ID/records code
+      log = self._make_log_entry(False,
+          'Reverted status to VALIDATED for auto-retry')
+      fltr = {
+        # !!!!!!! Need ID
+        'autoRetry': True
+      }
+      update: dict[str, t.Any] = {
+          # Set the status to VALIDATED
+          '$set': { 'status': protos.Record.VALIDATED },
+          # Remove the log of recentErrors and autoRetry flag
+          '$unset': { 'recentErrors': {}, 'autoRetry': {} },
+          # Add a log entry describing this action
+          '$addToSet': {
+            'log': bson_format.from_proto(log)
+          },
+          # Increment the retry count
+          '$inc': { 'retryCount': 1 }
+      }
 
+      resp = self.db.records.update_many(fltr, update)
+      if resp.modified_count == 0:
+        # Something went wrong
+        pass
+
+      log = self._make_log_entry(False,
+          (f'Uploaded records and reverted record status to VALIDATED '
+           f'on {resp.modified_count} records for auto-retry'))
+      self.file.log.append(log)
       self.file.status = protos.File.UPLOADING_RETRY_PAUSE
-      self.file.log.append(self._make_log_entry(False, 'Uploaded records'))
+      # Need to add the increment, somehow
+
+      # db.collection('files').updateOne(
+      #   { _id: parseInt(fileId) },
+      #   {
+      #     $addToSet: { log: log.toJson({ enumAsInteger: true }) },
+      #     $inc: { 'stats.uploadedRecordsError': -1 * modified }
+      #   }
+      # );
+
       self._update_file(['status', 'log', 'times', 'stats'])
       # schedule new task
+
       return
 
     # Uploading is finished. What's the next step?
@@ -327,6 +361,8 @@ class BatchRecordUploader(record_processor.DbRecordProcessor):
 
       self.file.stats.uploadedRecordsError += len(records)
       ss.failure += len(records)
+
+      self._retriable_records += len(records) if a_record.autoRetry else 0
 
     # Create an update_map which $sets most values but appends $log entries
     # This is necessary since we're working on a representative record

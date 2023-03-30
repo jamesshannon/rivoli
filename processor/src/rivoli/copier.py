@@ -1,4 +1,4 @@
-""" Copier classes """
+""" Copier module; looks for new files and creates File record. """
 import abc
 import datetime
 import pathlib
@@ -7,8 +7,7 @@ import shutil
 import time
 import typing as t
 
-import bson
-
+from rivoli import config
 from rivoli import protos
 from rivoli.protobson import bson_format
 
@@ -31,7 +30,8 @@ def scan(partner_id: str):
   """ Search for new files for a partner and set them up for processing. """
   # get the "copy" sources
   # instantiate the appropriate class
-  base_dir = pathlib.Path(__file__).parent.parent.parent.parent / 'rivolifiles'
+
+  base_dir = pathlib.Path(config.get('FILES', strict=True))
   cfg = {'path': str(base_dir / 'input')}
 
   dest_dir = base_dir / 'processed'

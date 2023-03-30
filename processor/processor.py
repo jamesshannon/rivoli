@@ -19,12 +19,13 @@ from rivoli.protos.processing_pb2 import RecordStats
 from rivoli.protobson import bson_format
 from rivoli import protos
 
-FILE_ID = 12
+FILE_ID = 18
 
 if __name__ == '__main__':
   #print(str(bson.ObjectId()))
   #config.get_filetypes()
-  copier.scan('640e86e127efb7e854c569d1')
+  copier.scan('641d47816af10755674ffdd1')
+  copier.scan('641ddc817328627725c1e3a1')
   #copier.copy.delay('p1')
 
   #loader.load_from_id(FILE_ID)
@@ -35,7 +36,7 @@ if __name__ == '__main__':
 
   #validator.validate(FILE_ID)
 
-  uploader.upload(FILE_ID)
+  #uploader.upload(FILE_ID)
   #db.get_next_id('some_collection')
 
   # a = RecordStats()
