@@ -36,19 +36,21 @@ def lookup_id(value: str) -> str:
 
 def _make_request(method: str, url: str, **kwargs: t.Any) -> t.Any:
   """ Helper to call an API. """
+  timeout = kwargs.pop('timeout', 10)
+
   try:
-    resp = requests.request(method, url, timeout=30, **kwargs)
+    resp = requests.request(method, url, timeout=timeout, **kwargs)
     resp.raise_for_status()
   except (requests.exceptions.ConnectionError,
           requests.exceptions.ReadTimeout,
           requests.exceptions.HTTPError) as exc:
-    error_code: t.Optional[t.Union[protos.ProcessingLog.ErrorCode, int]] = None
+    error_code: t.Union[protos.ProcessingLog.ErrorCode, int]
 
     if isinstance(exc, requests.exceptions.HTTPError):
       error_code = exc.response.status_code
     elif isinstance(exc, requests.exceptions.ConnectionError):
       error_code = protos.ProcessingLog.CONNECTION_ERROR
-    elif isinstance(exc, requests.exceptions.ReadTimeout):
+    else: # ReadTimeout
       error_code = protos.ProcessingLog.TIMEOUT_ERROR
 
     autoretry = error_code in AUTORETRY_CODES

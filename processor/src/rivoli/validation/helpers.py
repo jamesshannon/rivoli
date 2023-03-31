@@ -9,6 +9,7 @@ import typing as t
 from rivoli import protos
 
 TCallable = t.TypeVar("TCallable", bound=t.Callable)
+TException = t.TypeVar('TException', bound=BaseException)
 RecordType = dict[str, str]
 
 class ConfigurationError(ValueError):
@@ -40,6 +41,21 @@ class ProcessedRecord():
   validated_fields: dict[str, str]
   """ Dict of key/value from the file, possibly modified in prior steps. """
 
+def raise_config_error(
+    python_exceptions: tuple[t.Type[Exception]] = (KeyError, )):
+  """ Convert specified exception types to a ConfigurationError """
+
+  def wrapped(func: TCallable) -> TCallable:
+    @functools.wraps(func)
+    def wrapped_f(*args: t.Any, **kwargs: t.Any) -> t.Any:
+      try:
+        return func(*args, **kwargs)
+      except python_exceptions as exc:
+        raise ConfigurationError(str(exc)) # pylint: disable=raise-missing-from
+
+    return wrapped_f
+
+  return wrapped
 
 def register_func(function_type: protos.Function.FunctionType,
                   deprecated: bool = False):
