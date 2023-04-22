@@ -5,22 +5,22 @@ import { db, getNextId, upsert } from '$lib/server/db';
 import { Partner } from '$lib/protos/config_pb';
 
 export const POST = (async ({ request }) => {
-	const partner = Partner.fromJson(await request.json());
+  const partner = Partner.fromJson(await request.json());
 
-	// make manual updates
+  // make manual updates
 
-	// Create a new recordType.id if it's empty
-	for (let ft of partner.fileTypes) {
-		for (let rt of ft.recordTypes) {
-			if (!rt.id) {
-				rt.id = await getNextId('recordTypes', 1000);
-			}
-		}
-	}
+  // Create a new recordType.id if it's empty
+  for (let ft of partner.fileTypes) {
+    for (let rt of ft.recordTypes) {
+      if (!rt.id) {
+        rt.id = await getNextId('recordTypes', 1000);
+      }
+    }
+  }
 
-	const resp = upsert(db.collection('partners'), partner);
+  const resp = upsert(db.collection('partners'), partner);
 
-	return json({ partner: partner });
+  return json({ partner: partner });
 }) satisfies RequestHandler;
 
 // async saveFunction(req) {

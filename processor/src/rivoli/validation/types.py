@@ -4,9 +4,7 @@
 # validator that checks for a minimum numeric value would accept str, float, and
 # int, with the assumption that the string can be converted and will try at
 # runtime
-import typing as t
-
-from rivoli.validation import helpers
+from rivoli.function_helpers import exceptions
 
 # pylint: disable=raise-missing-from
 
@@ -15,11 +13,11 @@ def to_integer(value: str) -> int:
   try:
     return int(value)
   except ValueError:
-    raise helpers.ValidationError(f'{value} not an integer')
+    raise exceptions.ValidationError(f'{value} not an integer')
 
 def to_float(value: str) -> float:
   """ Modify value to a float. """
   try:
     return float(value)
   except ValueError:
-    raise helpers.ValidationError(f'{value} not a float')
+    raise exceptions.ValidationError(f'{value} not a float')

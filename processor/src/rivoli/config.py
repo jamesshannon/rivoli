@@ -9,7 +9,17 @@ _APP_ROOT = pathlib.Path(__file__).parent
 
 dotenv.load_dotenv(verbose=True)
 
-def get(key: str, default: t.Optional[str] = None, strict: bool = False
+@t.overload
+def get(key: str, default: t.Optional[str] = None,
+    strict: t.Literal[True] = True) -> str:
+  ...
+
+@t.overload
+def get(key: str, default: t.Optional[str] = None,
+    strict: t.Literal[False] = False) -> t.Optional[str]:
+  ...
+
+def get(key: str, default: t.Optional[str] = None, strict: bool = True
     ) -> t.Optional[str]:
   """ Get a configuration value. """
   val = os.getenv(key, default)

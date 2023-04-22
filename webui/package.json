@@ -42,6 +42,10 @@
 		"carbon-components-svelte": "^0.73.4",
 		"carbon-icons-svelte": "^11.4.0",
 		"carbon-pictograms-svelte": "^12.3.0",
-		"mongodb": "^5.1.0"
+		"celery-node": "^0.5.9",
+		"fuse.js": "^6.6.2",
+		"mongodb": "^5.1.0",
+		"svelte-markdown": "^0.2.3",
+		"svelvet": "^7.0.13"
 	}
 }

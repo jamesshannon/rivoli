@@ -1,5 +1,5 @@
 <script lang="ts">
-  import 'carbon-components-svelte/css/g10.css';
+  import { page } from '$app/stores';
 
   import {
     Button,
@@ -18,6 +18,7 @@
 
   import FileStatus from '$lib/components/FileStatus.svelte';
   import ProcessingLogsTable from '$lib/components/ProcessingLogsTable.svelte';
+  import PrettyJson from '$lib/components/PrettyJson.svelte';
 
   import { dateTime } from '$lib/helpers/utils';
   import { statuses } from '$lib/helpers/files';
@@ -28,9 +29,11 @@
 
   export let data: PageData;
   let file: File;
-  const filetype = FileType.fromJson(data.fileType as any as JsonValue);
+  const filetype = FileType.fromJson(data.fileType as any, {
+    ignoreUnknownFields: true
+  });
   function setFileFromData() {
-    file = File.fromJson(data.file as any as JsonValue);
+    file = File.fromJson(data.file as any, { ignoreUnknownFields: true });
   }
   async function refreshFileData() {
     // invalidate($page.url) does not work, so we invalidate everything
@@ -61,6 +64,24 @@
     return num ? num.toLocaleString() : 0;
   }
 
+  async function approveFileUploading() {
+    // Make request ot server to update the file status and schedule
+    // processing. In the future this might need to be abstracted to handle
+    // different statuses.
+    const resp = await fetch($page.url.pathname, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'APPROVE_UPLOAD'
+      })
+    });
+
+    const response = await resp.json();
+
+    refreshFileData();
+
+    alert(JSON.stringify(response));
+  }
+
   // Maps File statuses to the "current" index on the progress bar.
   // Only the 'ing' statuses get a "current" designator
   const currentIndexMap = new Map([
@@ -74,7 +95,11 @@
   // Set currentIndex really high, otherwise the first step is current
   $: currentIndex = currentIndexMap.get(file.status) || 20;
 
-  import { invalidate } from '$app/navigation';
+  // Needs to be encapsulated
+  let statusString: string;
+  let statusIsWorking: boolean;
+  $: statusString = File_Status[file.status];
+  $: statusIsWorking = statuses.get(file.status)?.working || false;
 </script>
 
 <Breadcrumb noTrailingSlash>
@@ -96,7 +121,13 @@
   {file.name} <span class="id">(File ID: {file.id})</span>
   {#if file.isDevelopment}<Tag>Development File</Tag>{/if}
 </h2>
-<!-- <FileStatus {file} /> -->
+<div class="local">
+  <Tag class={statusIsWorking ? 'working' : ''}>{statusString}</Tag>
+  {#if file.status == File_Status.WAITING_APPROVAL_TO_UPLOAD}
+    <Button on:click={approveFileUploading}>Upload Records</Button>
+  {/if}
+  <!-- <FileStatus {file} /> -->
+</div>
 
 <div class="file_details">
   <div class="progress_bar">
@@ -174,13 +205,8 @@
     <Row>
       <Column>
         <h5>Tags</h5>
-        <ul>
-          {#each Object.entries(file.tags) as [key, value]}
-            <li><strong>{key}</strong> = {value}</li>
-          {/each}
-          <ul />
-        </ul></Column
-      >
+        <PrettyJson json={file.tags} />
+      </Column>
       <Column>
         {#if file.headerColumns}
           <h5>Detected Header Columns</h5>
@@ -233,5 +259,24 @@
   .progress_bar h5 {
     font-weight: 500;
     margin-top: -2px;
+  }
+
+  .local :global(.working) {
+    background-color: #222;
+    animation-name: pulsing;
+    animation-duration: 1s;
+    animation-iteration-count: infinite;
+  }
+
+  @keyframes pulsing {
+    0% {
+      background-color: #5c8ddb;
+    }
+    50% {
+      background-color: #4285f4;
+    }
+    100% {
+      background-color: #5c8ddb;
+    }
   }
 </style>

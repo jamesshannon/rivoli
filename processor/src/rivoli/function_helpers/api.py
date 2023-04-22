@@ -1,4 +1,5 @@
 """ API function helpers. """
+import os
 import typing as t
 
 import requests
@@ -6,6 +7,8 @@ import requests.exceptions
 
 from rivoli import protos
 from rivoli.function_helpers import exceptions
+
+DRYRUN_POST = os.getenv('API_POST_DRYRUN', 'FALSE') != 'FALSE'
 
 # These codes allow for an automatic retry.
 AUTORETRY_CODES: t.Sequence[t.Union[int, 'protos.ProcessingLog.ErrorCode']] = (
@@ -17,6 +20,10 @@ AUTORETRY_CODES: t.Sequence[t.Union[int, 'protos.ProcessingLog.ErrorCode']] = (
 def make_request(method: str, url: str, **kwargs: t.Any) -> t.Any:
   """ Call API, retry, and parse Exceptions. Returns a dict from JSON. """
   timeout = kwargs.pop('timeout', 10)
+
+  if method.upper() == 'POST' and DRYRUN_POST:
+    print(f'Skipping API post to {url} because of dryrun')
+    return {}
 
   try:
     resp = requests.request(method, url, timeout=timeout, **kwargs)
@@ -48,4 +55,3 @@ def get(url: str, **kwargs: t.Any) -> t.Any:
 def post(url: str, data: t.Any, **kwargs: t.Any) -> t.Any:
   """ Posts data as JSON. Returns a dict from JSON. """
   return make_request('POST', url, json=data, **kwargs)
-

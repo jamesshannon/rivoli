@@ -2,40 +2,33 @@
 import csv
 import hashlib
 import itertools
+import io
 import pathlib
-import time
 import typing as t
 
 from rivoli import protos
 from rivoli.protobson import bson_format
 
 from rivoli import admin_entities
-from rivoli.utils import tasks
 from rivoli import record_processor
-from rivoli import db
-from rivoli.utils import processing
+from rivoli import status_scheduler
+from rivoli.function_helpers import exceptions
+from rivoli.utils import tasks
 
+# pylint: disable=too-few-public-methods
 
-# HOW TO GET CHANGES BACK AS DATA CHUNKS FOR DB ISOLATION & TESTING
 @tasks.app.task
 def load_from_id(file_id: int):
   """ Loader entrypoint for celery.
-  Loads file based on just a file_id, and relies on using a "live" FileType from
-  the database.
+  Loads file based on just a file_id, and relies on using the currently-live
+  FileType from the database.
   """
-  mydb = db.get_db()
-  file = bson_format.to_proto(protos.File,
-      mydb.files.find_one({'_id': file_id}))
-
-  # get the filetype config
-  partner = admin_entities.get_partner(file.partnerId)
-  filetype = admin_entities.get_filetype(file.fileTypeId)
+  file, partner, filetype = admin_entities.get_file_entities(file_id)
 
   loader = DelimitedLoader(file, partner, filetype)
-  loader.prep_record()
-  loader.load()
+  loader.process()
 
-  #parser.parse.delay(file_id)
+  status_scheduler.next_step(file, filetype)
 
 def load_from_file():
   # Takes FileType, which might be different than the live version.
@@ -48,16 +41,22 @@ class Loader(record_processor.RecordProcessor):
   """ Iterate through a local file and create Records. """
   log_source = protos.ProcessingLog.LOADER
 
-  def prep_record(self):
+  _success_status = protos.File.LOADED
+  _error_status = protos.File.LOAD_ERROR
+
+  local_file: pathlib.Path
+  fileobj: t.Optional[io.TextIOWrapper] = None
+
+  def _begin_processing(self):
+    """ Setup the File and Records to begin loading. """
     name = pathlib.Path(self.file.name)
     new_name = f'{name.stem}-{self.file.id}{name.suffix}'
     self.local_file = pathlib.Path(self.file.location) / new_name
 
-    self.fileobj = open(self.local_file, 'rt', newline='', encoding='UTF-8')
-
     # check size and md5?
 
-    self._update_status_to_processing(protos.File.LOADING)
+    self._update_status_to_processing(protos.File.LOADING,
+        protos.File.NEW)
     # Delete any existing records
     self.db.records.delete_many(self._all_records_filter())
     self._clear_stats('LOAD')
@@ -67,12 +66,11 @@ class Loader(record_processor.RecordProcessor):
 
     self.file.times.loadingStartTime = bson_format.now()
 
-class DelimitedLoader(Loader):
-  """ Iterate through a local delimited file and create Records. """
   def _create_new_record(self, line_num: int, line: list[str],
       record_type: t.Union[int, 'protos.Record.RecordTypeRef', None],
       status: protos.Record.Status = protos.Record.LOADED,
       log_msg: t.Optional[str] = None) -> dict[str, t.Any]:
+    """ Create an individual Record to be uploaded. Return a dict. """
 
     record = protos.Record(
         id=self.record_prefix + line_num,
@@ -84,57 +82,72 @@ class DelimitedLoader(Loader):
 
     if log_msg:
       # If log_msg is passed then it's only due to an error
-      log = self._make_log_entry(True, log_msg, protos.ProcessingLog.UNEXPECTED)
+      log = self._make_log_entry(True, log_msg,
+          protos.ProcessingLog.OTHER_OPERATION_ERROR)
       record.log.append(log)
       record.recentErrors.append(log)
 
     return bson_format.from_proto(record)
 
-  def _close_file(self, status: protos.File.Status) -> None:
-    self.file.times.loadingEndTime = bson_format.now()
-    return super()._update_file(
-      ['headerColumns', 'status', 'stats', 'times', 'log', 'recentErrors'],
-      status)
+class DelimitedLoader(Loader):
+  """ Iterate through a local delimited file and create Records. """
+  _reader: t.Iterator[list[str]]
+  _has_header: bool
+  _delimiter: str
 
-  def load(self):
-    # get 8k of sample text from the file and use that to try to detect the
+  _line_num: int = 1
+
+  def _process(self):
+    """ Load CSV rows. """
+    self._begin_processing()
+    self._open_and_validate_file()
+    self._upload_records()
+
+    # Parent method is responsible for updating File status and updating db
+
+  def _open_and_validate_file(self) -> None:
+    """ Open file from the filesystem and confirm file properties. """
+    # Get 8k of sample text from the file and use that to try to detect the
     # dialect and existence of a header
+    self.fileobj = open(self.local_file, 'rt', newline='', encoding='UTF-8')
+
     sample = self.fileobj.read(8192)
     self.fileobj.seek(0)
 
     sniffer = csv.Sniffer()
     dialect = sniffer.sniff(sample)
-    has_header = sniffer.has_header(sample)
+
+    self._has_header = sniffer.has_header(sample)
+    self._delimiter = dialect.delimiter
 
     # should confirm dialect and has_header matches anything that's been set on
     # the file record
 
     # Create a CSV reader iterator
-    reader = csv.reader(self.fileobj, dialect)
-    line_num: int = 1
-    self.file.stats.loadedRecordsSuccess = 0
-    self.file.stats.loadedRecordsError = 0
+    self._reader = csv.reader(self.fileobj, dialect)
 
-    separator = ','
-
-    if has_header != self.filetype.hasHeader:
-      def fmt(header: bool) -> str:
+    if self._has_header != self.filetype.hasHeader:
+      # File configuration doesn't match what we see in the file. This is a
+      # ConfigurationError and we should stop processing.
+      def _fmt(header: bool) -> str:
         return 'a header' if header else 'no header'
 
-      log = self._make_log_entry(True,
-          (f'Unexpected file header: Expected {fmt(self.filetype.hasHeader)} '
-           f'but got {fmt(has_header)}'),
-          protos.ProcessingLog.UNEXPECTED)
+      raise exceptions.ConfigurationError(
+          (f'Unexpected file header: Expected {_fmt(self.filetype.hasHeader)} '
+           f'but found {_fmt(self._has_header)}'))
 
-      self.file.log.append(log)
-      self.file.recentErrors.append(log)
-      self._close_file(protos.File.LOAD_ERROR)
-      return
+    if self._delimiter != self.filetype.delimitedSeparator:
+      raise exceptions.ConfigurationError(
+          (f'Unexpected delimiter: Expected {self.filetype.delimitedSeparator} '
+           f'but found {self._delimiter}'))
 
-    if has_header:
-      line = next(reader)
+  def _upload_records(self) -> None:
+    """ Iterate through file rows and upload to database. """
+    if self._has_header:
+      # File has header so we treat this first row differently
+      line = next(self._reader)
 
-      self.db.records.insert_one(self._create_new_record(line_num, line,
+      self.db.records.insert_one(self._create_new_record(self._line_num, line,
           record_type=protos.Record.HEADER))
 
       self.file.headerColumns.extend(line)
@@ -142,28 +155,24 @@ class DelimitedLoader(Loader):
       # Files with headers should only have one recordType... right?
       assert len(self.filetype.recordTypes) == 1
 
-      # Files with headers should have the field's headerColumn set
+      # Files with headers should have the FieldTypes' headerColumn field set
       field_keys = {f.headerColumn for f
                     in self.filetype.recordTypes[0].fieldTypes}
+      # Create a unique list of headers
       columns = set(line)
 
       if not field_keys.issubset(columns):
         # The file should have at least the fields configured in the record
-        log = self._make_log_entry(True,
+        raise exceptions.ConfigurationError(
             ('Unexpected file header: Missing columns '
              f'{field_keys.difference(columns)}. Expected at least {field_keys} '
-             f'but got {columns}'),
-            protos.ProcessingLog.UNEXPECTED)
-        self.file.log.append(log)
-        self.file.recentErrors.append(log)
-        self._close_file(protos.File.LOAD_ERROR)
-        return
+             f'but got {columns}'))
 
       self._update_file(['headerColumns', 'stats'])
 
-      line_num += 1
+      self._line_num += 1
 
-    while lines := list(itertools.islice(reader, 1000)):
+    while lines := list(itertools.islice(self._reader, 1000)):
       records: list[dict[str, t.Any]] = []
 
       for line in lines:
@@ -172,33 +181,45 @@ class DelimitedLoader(Loader):
         if len(self.filetype.recordTypes) == 1:
           recordtype_id = self.filetype.recordTypes[0].id
         else:
-          recordtype_id = self._get_regexp_matching_record(separator.join(line),
-              self.filetype.recordTypes, 'recordMatches')
+          # Find the matching RecordType based on each RecordType's patterns
+          # Re-create the line's values as a single string
+          recordtype_id = self._get_regexp_matching_record(
+              self._delimiter.join(line), self.filetype.recordTypes,
+              'recordMatches')
 
         if recordtype_id:
           records.append(self._create_new_record(
-            line_num, line, recordtype_id))
+            self._line_num, line, recordtype_id))
           self.file.stats.loadedRecordsSuccess += 1
         else:
+          # No RecordType found. Create an error record.
           records.append(self._create_new_record(
-            line_num, line, None, protos.Record.LOAD_ERROR,
+            self._line_num, line, None, protos.Record.LOAD_ERROR,
             'No record type match found'))
           self.file.stats.loadedRecordsError += 1
 
-        line_num += 1
+        self._line_num += 1
 
       self.db.records.insert_many(records, ordered=False)
-      self.db.files.update_one(
-          *bson_format.get_update_args(self.file, ['stats']))
+      self._update_file(['stats'])
 
     # Final stats update, now that we finished the loading
     self.file.stats.approximateRows = 0
-    self.file.stats.totalRows = line_num - 1
+    self.file.stats.totalRows = self._line_num - 1
 
     stepstats = self.file.stats.steps['LOAD']
-    stepstats.input = line_num - 1
+    stepstats.input = self._line_num - 1
     stepstats.success = self.file.stats.loadedRecordsSuccess
     stepstats.failure = self.file.stats.loadedRecordsError
 
     self.file.log.append(self._make_log_entry(False, 'Loaded records'))
-    self._close_file(protos.File.LOADED)
+
+  def _close_processing(self) -> None:
+    """ Close the file object and update the db File fields. """
+    if self.fileobj:
+      self.fileobj.close()
+
+    self.file.times.loadingEndTime = bson_format.now()
+
+    return super()._update_file(
+      ['headerColumns', 'status', 'stats', 'times', 'log', 'recentErrors'])

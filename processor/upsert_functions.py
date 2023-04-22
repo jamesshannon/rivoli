@@ -28,15 +28,15 @@ def parse_args() -> argparse.Namespace:
 def get_functions(args: argparse.Namespace) -> list[protos.Function]:
   config_dir_path = pathlib.Path(args.directory)
 
-  functions: list[protos.Function] = []
+  funcs: list[protos.Function] = []
 
   for file in config_dir_path.iterdir():
     if not file.is_dir() and file.suffix == '.json':
       with file.open('r', encoding='ascii') as fobj:
         for func_dct in json.load(fobj):
-          functions.append(bson_format.to_proto(protos.Function, func_dct))
+          funcs.append(bson_format.to_proto(protos.Function, func_dct))
 
-  return functions
+  return funcs
 
 if __name__ == '__main__':
   parsed = parse_args()
@@ -48,4 +48,5 @@ if __name__ == '__main__':
     upserts.append(pymongo.UpdateOne({'_id': func_dct['_id']},
                                      {'$set': func_dct}, upsert=True))
 
-  db.get_db().functions.bulk_write(upserts, ordered=False)
+  response = db.get_db().functions.bulk_write(upserts, ordered=False)
+  print(response.bulk_api_result)

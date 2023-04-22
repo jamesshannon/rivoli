@@ -13,36 +13,37 @@ from rivoli.protobson import bson_format
 
 from rivoli import admin_entities
 from rivoli import db
-from rivoli import record_processor
-from rivoli.utils import processing
+from rivoli import status_scheduler
+from rivoli.utils import logging
 from rivoli.utils import tasks
 from rivoli.utils import utils
+
+logger = logging.get_logger(__name__)
 
 @tasks.app.task
 def setup_scan_tasks():
   """ Schedule a copy() task for each active partner. """
   for partner in admin_entities.get_all_partners().values():
     if partner.active:
-      detect.delay(partner.id)
+      scan.delay(partner.id)
 
 @tasks.app.task
 def scan(partner_id: str):
   """ Search for new files for a partner and set them up for processing. """
-  # get the "copy" sources
-  # instantiate the appropriate class
-
-  base_dir = pathlib.Path(config.get('FILES', strict=True))
+  base_dir = pathlib.Path(config.get('FILES'))
   cfg = {'path': str(base_dir / 'input')}
 
   dest_dir = base_dir / 'processed'
 
   partner = admin_entities.get_partner(partner_id)
 
+  logger.info('Scanning for files for Partner ID %s', partner_id)
+
   copier = LocalFileCopier(partner, cfg, dest_dir)
   copier.copy()
 
-
 class Copier(abc.ABC):
+  """ Class to look for files and prep them for loading. """
   def __init__(self, partner: protos.Partner, cfg: dict[str, str],
                dest_dir: pathlib.Path):
     self.cfg = cfg
@@ -51,7 +52,7 @@ class Copier(abc.ABC):
 
   def create_file(self, partner: protos.Partner, orig_file: pathlib.Path,
                   local_file: pathlib.Path, filetype: protos.FileType
-                  ) -> int:
+                  ) -> protos.File:
     """ Create a file record, rename local file, and schedule loading. """
     # Get a seqential ID. We do this to keep the ID small for the Record rows
     mydb = db.get_db()
@@ -103,10 +104,7 @@ class Copier(abc.ABC):
     new_name = self._file_longterm_name(orig_file, file_id)
     local_file.rename(local_file.with_name(new_name))
 
-    # Schedule loading of the file
-    #loader.load.delay(file_id)
-
-    return file_id
+    return file
 
   def _parse_date(self, orig_file: pathlib.Path,
       filetype: protos.FileType) -> t.Optional[str]:
@@ -181,6 +179,10 @@ class LocalFileCopier(Copier):
       filelog.fileId = resp['_id']
       return filelog
 
+    # This creates a lot of logspam, at least until (if?) we decide to delete
+    # the file after copying
+    #logger.info('Found new file: %s', file.name)
+
     # A partner can have multiple filetypes, and we're looking for any that are
     # available
     for filetype in partner.fileTypes:
@@ -193,11 +195,13 @@ class LocalFileCopier(Copier):
           # The filename will be changed right after the record is created,
           # and this approach makes oprhans obvious
           tmp_file = dest_dir / self._file_temp_name(file.name)
-          shutil.copy(file, tmp_file)
+          shutil.move(file, tmp_file)
           # Create the file record, which also renames the file
-          file_id = self.create_file(partner, file, tmp_file, filetype)
+          file_r = self.create_file(partner, file, tmp_file, filetype)
 
-          filelog.fileId = file_id
+          status_scheduler.next_step(file_r, filetype)
+
+          filelog.fileId = file_r.id
           filelog.resolution = protos.CopyLog.EvaluatedFile.COPIED
 
           return filelog

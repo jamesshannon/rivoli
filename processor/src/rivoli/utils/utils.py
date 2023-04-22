@@ -1,5 +1,6 @@
 """ Utils for processing files. """
 import hashlib
+import json
 import pathlib
 
 def get_file_hash(file_path: pathlib.Path) -> bytes:
@@ -12,3 +13,7 @@ def get_file_hash(file_path: pathlib.Path) -> bytes:
       md5.update(chunk)
 
     return md5.digest()
+
+def get_dict_hash(dct: dict[str, str]) -> bytes:
+  """ Return an md5 hash of a dictionary. """
+  return hashlib.md5(json.dumps(dct, sort_keys=True).encode()).digest()
