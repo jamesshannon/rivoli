@@ -50,7 +50,9 @@ def next_step(file: protos.File, file_type: protos.FileType) -> None:
   elif file.status in (protos.File.UPLOADED, ):
     _next_step_uploaded(file, file_type)
 
-  elif file.status in (protos.File.WAITING_APPROVAL_TO_UPLOAD):
+  elif file.status in (protos.File.REPORTING, ):
+    # A report has been finished
+    _next_step_reporting(file, file_type)
 
   else:
     logger.error('File (ID %s) status (%s) does not have a next step',
@@ -59,6 +61,14 @@ def next_step(file: protos.File, file_type: protos.FileType) -> None:
 def _log_next_step(file: protos.File, step: str) -> None:
   logger.info('Scheduling %s for File ID %s', step, file.id)
 
+def _update_file_status(file: protos.File, status: protos.File.Status) -> None:
+  """ Update file status and sync with the database. """
+  # Probably want to add a File.log shortcut here.
+  file.status = status
+  db.get_db().files.update_one(*bson_format.get_update_args(file, ['status']))
+
+
+# Step Functions
 def _next_step_new(file: protos.File) -> None:
   """ Schedule file loading. """
   _log_next_step(file, 'loading')
@@ -106,21 +116,35 @@ def _next_step_validated(file: protos.File, file_type: protos.FileType) -> None:
   uploader.upload.delay(file.id)
 
 def _next_step_uploaded(file: protos.File, file_type: protos.FileType) -> None:
+  """ Schedule next step after uploading or end processing.
+  Might need to generate reports, do something else, or complete.
+  """
   # Decide what to do next. One (or more) reports? Otherwise completed
   # Eventually support a "needs manual post-upload review" status
   # How to eventually transition to completed when all reports are done?
 
-  _log_next_step(file, 'reporting')
-  _update_file_status(file, protos.File.REPORTING)
+  # The filter will need to be updated when there are other
+  # output types
+  outputs = [output for output in file_type.outputs
+             if output.active and output.file.runAutomatic]
 
-  reporter.report.delay(file.id, file_type.id)
+  if outputs:
+    _log_next_step(file, 'reporting')
+    # Add individual report statuses to the File
+    _update_file_status(file, protos.File.REPORTING)
+
+    for output in outputs:
+      # TODO: Create tracking entries for each automatic output
+      reporter.create_and_schedule_report(file, output)
+
+  else:
+    _update_file_status(file, protos.File.COMPLETED)
 
 def _next_step_reporting(file: protos.File, file_type: protos.FileType) -> None:
+  """ Possibly move file to complete status when all reports are finished. """
   # There could be many reports and so we need to determine if they've all
   # completed (successfully) and, if so, what the next steps are
-  pass
-def _update_file_status(file: protos.File, status: protos.File.Status) -> None:
-  # Probably want to add a File.log shortcut here.
-  file.status = status
-  db.get_db().files.update_one(*bson_format.get_update_args(file, ['status']))
+  # Get list of reports. This was generated when the uploading was completed
 
+  # In the meantime, just set the File to COMPLETED
+  _update_file_status(file, protos.File.COMPLETED)

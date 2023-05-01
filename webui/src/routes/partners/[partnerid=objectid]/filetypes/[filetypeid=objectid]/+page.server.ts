@@ -2,8 +2,8 @@ import type { PageServerLoad } from './$types';
 
 import { db, getOne, getEntitiesList } from '$lib/server/db';
 
-import type { Partner } from '$lib/protos/config_pb';
-import type { Function } from '$lib/protos/functions_pb';
+import type { Partner } from '$lib/rivoli/protos/config_pb';
+import type { Function } from '$lib/rivoli/protos/functions_pb';
 
 export const load = (async ({ params, parent }) => {
   const functions = getEntitiesList<Function>(

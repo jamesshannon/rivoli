@@ -14,7 +14,6 @@ let client: MongoClient;
 
 if (!env.mongo_authkey) {
   client = new MongoClient(env.mongo_uri);
-  console.log(env.mongo_uri);
 } else {
   client = new MongoClient('xxxx');
 }
@@ -54,7 +53,7 @@ export async function upsert(
     msg.id = new ObjectId().toHexString();
   }
 
-  const json = msg.toJson()!;
+  const json = msg.toJson({ enumAsInteger: true })!;
   const id_filter = makeIdFilter(json.id, binaryId);
   delete json.id;
 

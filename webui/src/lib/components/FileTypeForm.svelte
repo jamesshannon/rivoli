@@ -19,17 +19,23 @@
   } from 'carbon-components-svelte';
   import Add from 'carbon-icons-svelte/lib/Add.svelte';
 
+  import { makeObjectId } from '$lib/helpers/utils';
+
   import {
     FileType,
     RecordType,
     FieldType,
     FileType_Format,
-    FileType_RequireReview
-  } from '$lib/protos/config_pb';
-  import type { Function } from '$lib/protos/functions_pb';
+    FileType_RequireReview,
+    Output,
+    OutputConfiguration,
+    DestinationFile
+  } from '$lib/rivoli/protos/config_pb';
+  import type { Function } from '$lib/rivoli/protos/functions_pb';
   import StringList from '$lib/components/StringList.svelte';
   import StringMapping from '$lib/components/StringMapping.svelte';
   import RecordTypeSubForm from '$lib/components/PartnerForm/RecordTypeSubForm.svelte';
+  import OutputSubForm from './PartnerForm/OutputSubForm.svelte';
 
   export let filetype: FileType;
   export let showRecordTypes: boolean = false;
@@ -53,6 +59,18 @@
   function addNewRecordType() {
     filetype.recordTypes.push(new RecordType());
     filetype.recordTypes = filetype.recordTypes;
+  }
+
+  function addNewOutput() {
+    filetype.outputs.push(
+      new Output({
+        id: makeObjectId(),
+        active: true,
+        configuration: new OutputConfiguration(),
+        file: new DestinationFile()
+      })
+    );
+    filetype.outputs = filetype.outputs;
   }
 
   if (!filetype.id) {
@@ -203,6 +221,36 @@
                 {#each filetype.recordTypes as recordtype}
                   <TabContent>
                     <RecordTypeSubForm bind:recordtype {filetype} />
+                  </TabContent>
+                {/each}
+              </svelte:fragment>
+            </Tabs>
+          </Column>
+        </Row>
+
+        <!-- Outputs (Reports) -->
+        <Row>
+          <Column>
+            <h2>Reports</h2>
+            <Tabs type="container">
+              {#each filetype.outputs as output}
+                <Tab
+                  label={output.name || '[New Report]'}
+                  href={output.id.toString()}
+                />
+              {/each}
+              <div class="btn-with-thing">
+                <Button
+                  kind="secondary"
+                  iconDescription="Add New Report"
+                  icon={Add}
+                  on:click={addNewOutput}
+                />
+              </div>
+              <svelte:fragment slot="content">
+                {#each filetype.outputs as output}
+                  <TabContent>
+                    <OutputSubForm bind:output />
                   </TabContent>
                 {/each}
               </svelte:fragment>

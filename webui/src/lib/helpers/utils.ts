@@ -1,20 +1,42 @@
 import { browser } from '$app/environment';
+import {
+  ProcessingLog,
+  ProcessingLog_LogLevel
+} from '$lib/rivoli/protos/processing_pb';
+
+export function makeLogMsg(
+  message: string,
+  level: ProcessingLog_LogLevel = ProcessingLog_LogLevel.INFO
+): ProcessingLog {
+  return new ProcessingLog({
+    level: level,
+    time: Math.floor(Date.now() / 1000),
+    message: message
+  });
+}
 
 export function dateTime(timestamp: number | undefined): string {
-  return new Date(timestamp * 1000).toLocaleString([], {
-    dateStyle: 'short',
-    timeStyle: 'short'
-  });
+  return timestamp
+    ? new Date(timestamp * 1000).toLocaleString([], {
+        dateStyle: 'short',
+        timeStyle: 'short'
+      })
+    : '';
 }
 
 export function makeObjectId() {
   function _hex(value: number) {
     return Math.floor(value).toString(16);
   }
+
   return (
     _hex(Date.now() / 1000) +
     ' '.repeat(16).replace(/./g, () => _hex(Math.random() * 16))
   );
+}
+
+export function fmtNum(num: number | BigInt | undefined) {
+  return num ? num.toLocaleString() : 0;
 }
 
 const escape = browser ? document.createElement('textarea') : null;

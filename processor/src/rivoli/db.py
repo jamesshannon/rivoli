@@ -42,6 +42,6 @@ def get_next_id(collection: str, offset: int = 0) -> int:
 
 def get_one_by_id(collection: str, id_: t.Union[str, int], msgtype: type[Msg]
     ) -> Msg:
-  """ Get a single message by ID. """
+  """ Get a single message from the database by ID. """
   return bson_format.to_proto(
     msgtype, get_db()[collection].find_one({'_id': id_}))

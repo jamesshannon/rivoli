@@ -13,7 +13,7 @@
   import { SvelteDataTable } from '@mac-barrett/svelte-data-table';
   import type { PageData } from './$types';
 
-  import { File_Status } from '$lib/protos/processing_pb';
+  import { File_Status } from '$lib/rivoli/protos/processing_pb';
 
   export let data: PageData;
   const partnerMap = data.partnerMap;

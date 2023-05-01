@@ -2,8 +2,8 @@ import type { PageServerLoad } from './$types';
 
 import { db, getOne } from '$lib/server/db';
 
-import type { Partner } from '$lib/protos/config_pb';
-import type { File } from '$lib/protos/processing_pb';
+import type { Partner } from '$lib/rivoli/protos/config_pb';
+import type { File } from '$lib/rivoli/protos/processing_pb';
 
 function jsonArray(obj: any, field: string): Array<any> {
   return obj[field] ? obj[field] : Array();

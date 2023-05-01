@@ -12,12 +12,12 @@
 
   import SvelteMarkdown from 'svelte-markdown';
 
-  import { FunctionConfig } from '$lib/protos/config_pb';
+  import { FunctionConfig } from '$lib/rivoli/protos/config_pb';
   import {
     type Function,
     Function_DataType,
     Function_FunctionType
-  } from '$lib/protos/functions_pb';
+  } from '$lib/rivoli/protos/functions_pb';
 
   import { makeObjectId } from '$lib/helpers/utils';
   import Fuse from 'fuse.js';

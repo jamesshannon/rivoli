@@ -1,6 +1,8 @@
 syntax = "proto3";
 package rivoli.protos.config;
 
+import "rivoli/protos/processing.proto";
+
 message Partner {
   string id = 1;
   bool active = 2;
@@ -38,7 +40,8 @@ message FileType {
   string uploadBatchGroupKey = 17;
 
   repeated RecordType recordTypes = 7;
-  repeated Destination destinations = 10;
+
+  repeated Output outputs = 10;
 
   // might need the concept of "grouping" or "reducing"
   // do this after the validations
@@ -117,17 +120,48 @@ message FunctionConfig {
   repeated string parameters = 3;
 }
 
-message Destination {
-  string name = 1;
-  DestinationType type = 2;
+
+message Output {
+  string id = 1;
+  string name = 2;
   bool active = 3;
 
-  bool automatic = 4;
+  OutputConfiguration configuration = 6;
 
-  enum DestinationType {
-    DESTINATION_UNKNOWN = 0;
-    DOWNLOAD = 2;
-    PROGRAMMATIC = 3;
-    FILE = 4;
-  }
+  // In the future we can support other output destinations, like APIs
+  DestinationFile file = 5;
+  InteractiveReport table = 7;
+}
+
+message DestinationFile {
+  string filePathPattern = 1;
+  bool runAutomatic = 2;
+
+  string fileFormat = 3;
+
+  bool delimitedHasHeader = 4;
+}
+
+message InteractiveReport {
+  bool requireConfirmation = 1;
+}
+
+message OutputConfiguration {
+  // Record Configuration
+  // Which records will be included?
+  // There are other logical configurations, such as "All", or "Errors Only", or
+  // "at least x", but those can be represented in the UI, at least in the
+  // short term
+  repeated rivoli.protos.processing.Record.Status recordStatuses = 6;
+
+  bool allRecordTypes = 10;
+  repeated uint32 recordTypeRef = 7;
+
+  // Field Configuration
+  // This is a fairly simple configuration -- this could get really complex
+  // with the need to order and to, basically, recreate the entire Field/Record
+  // validation scheme here. Might even need different sets of fields per
+  // RecordType
+  bool duplicateInputFields = 8;
+  bool includeRecentErrors = 9;
 }

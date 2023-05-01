@@ -11,11 +11,12 @@ from rivoli import config
 from rivoli import db
 from rivoli import protos
 from rivoli import record_processor
+from rivoli import status_scheduler
 from rivoli.function_helpers import helpers
+from rivoli.protobson import bson_format
 from rivoli.utils import tasks
 
 # File Formatting
-# Python strftime strings for ... current time?, plus
 # original filename base
 
 FieldValueGenerator = t.Callable[[protos.Record], list[str]]
@@ -25,11 +26,36 @@ These can return one or more values depending on what's being generated. E.g.,
 """
 
 @tasks.app.task
-def report(file_id: int, report_id: str) -> None:
-  file = db.get_one_by_id('files', file_id, protos.File)
+def create_and_schedule_report_by_id(file_id: int, report_id: str) -> None:
+  """ (ID-based) Create report entry on file and schedule report execution. """
+  print(file_id, report_id)
+  file, _, filetype = admin_entities.get_file_entities(file_id)
+  output = [o for o in filetype.outputs if o.id == report_id][0]
 
-  partner = admin_entities.get_partner(file.partnerId)
-  filetype = admin_entities.get_filetype(file.fileTypeId)
+  create_and_schedule_report(file, output)
+
+def create_and_schedule_report(file: protos.File, output: protos.Output) -> None:
+  """ Create report entry on file and schedule report execution. """
+  inst = protos.OutputInstance(
+      id=bson_format.hex_id(),
+      outputId=output.id,
+      status=protos.OutputInstance.NEW,
+      startTime=bson_format.now(),
+  )
+  file.outputs.append(inst)
+
+  db.get_db().files.update_one(*bson_format.get_update_args(file, ['outputs']))
+
+  report.delay(file.id, inst.id)
+
+@tasks.app.task
+def report(file_id: int, instance_id: str) -> None:
+  file, partner, filetype = admin_entities.get_file_entities(file_id)
+
+  # Best practice would be to find the array position and then use that index
+  # to better target the db update
+  inst = [inst for inst in file.outputs if inst.id == instance_id][0]
+  output = [o for o in filetype.outputs if o.id == inst.outputId][0]
 
   # get report
   config = {
@@ -51,8 +77,19 @@ def report(file_id: int, report_id: str) -> None:
     'file_path_pattern': '/reports/zip/d2c/{ORIG_FILE_STEM}-{NOW_TS}-EXCEPTIONS.CSV',
   }
 
-  reporter = CsvReporter(file, partner, filetype, file_report_config)
+  # Capture exceptions. Update the output status. Then call status_scheduler
+  # which will figure out what to do next with the file.
+  reporter = CsvReporter(file, partner, filetype, output)
   reporter.process()
+
+  inst.endTime = bson_format.now()
+  inst.outputFilename = str(reporter.report_path)
+  inst.status = protos.OutputInstance.SUCCESS
+
+
+  db.get_db().files.update_one(*bson_format.get_update_args(file, ['outputs']))
+
+  status_scheduler.next_step(file, filetype)
 
 
 def _fval_recent_errors(record: protos.Record) -> list[str]:
@@ -71,15 +108,15 @@ class Reporter(record_processor.DbChunkProcessor):
   log_source = protos.ProcessingLog.UPLOADER # FIXME
 
   _success_status = protos.File.REPORTED
-  _success_status = protos.File.REPORT_ERROR
+  _error_status = protos.File.REPORT_ERROR
 
   _only_process_record_status = False
 
   def __init__(self, file: protos.File, partner: protos.Partner,
-      filetype: protos.FileType, report_config: dict[str, t.Any]) -> None:
+      filetype: protos.FileType, output: protos.Output) -> None:
     super().__init__(file, partner, filetype)
 
-    self.report_config = report_config
+    self._report_config = output
 
     # Length of field names should be the length of the output list post-
     # generation (which might be different than the length of generators).
@@ -88,15 +125,18 @@ class Reporter(record_processor.DbChunkProcessor):
     self._field_generators: list[FieldValueGenerator] = []
     """ List of field generators """
 
+    root = pathlib.Path(config.get('FILES'))
+
+    self.report_path = self._make_file_path(
+        root, partner.outgoingDirectory, output.file.filePathPattern)
+
     # Keep default db chunk size, don't batch processing
     # No chunk pre-processing necessary
     # We don't want to write back to the File, and definitely not the Records
 
-    root = pathlib.Path(config.get('FILES'))
-    self._report_path = self._make_file_path(
-        root, report_config['file_path_pattern'])
 
-  def _make_file_path(self, root: pathlib.Path, template: str) -> pathlib.Path:
+  def _make_file_path(self, root: pathlib.Path, partner_base: str,
+      template: str) -> pathlib.Path:
     """ Return a report file path made from a formatted template. """
     now = datetime.datetime.now()
     filename_vars: dict[str, str] = {
@@ -107,7 +147,7 @@ class Reporter(record_processor.DbChunkProcessor):
     # Files should always be relative to the root path, and a leading / will
     # essentially ignore the root
     relative_path = template.format(**filename_vars).lstrip('/')
-    report_path = root / relative_path
+    report_path = root / partner_base.strip('/') / relative_path
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
     return report_path
@@ -127,17 +167,19 @@ class Reporter(record_processor.DbChunkProcessor):
   def _process(self):
     """ Create report based on instance config. """
     # Check for invariants
-    if self.report_config['config']['header'] and not self.file.headerColumns:
+    header = True
+
+    if header and not self.file.headerColumns:
       raise ValueError('invalid')
 
     # Create fields headers and value generators
-    if self.report_config['config']['duplicate_input_fields']:
+    if self._report_config.configuration.duplicateInputFields:
       # Copy all of the original input fields. These are in the rawColumns field
       # in the Record
       self._field_names.extend(list(self.file.headerColumns))
       self._field_generators.append(_fvals_original_columns)
 
-    if self.report_config['config']['include_recent_errors']:
+    if self._report_config.configuration.includeRecentErrors:
       # Add a column with any errors
       self._field_names.append('Errors')
       self._field_generators.append(_fval_recent_errors)
@@ -150,8 +192,10 @@ class Reporter(record_processor.DbChunkProcessor):
       pass
     elif False and self.report_config['config']['record_status_gte']:
       pass
-    elif self.report_config['config']['record_statuses']:
-      filter_['status'] = {'$in': self.report_config['config']['record_statuses']}
+    elif self._report_config.configuration.recordStatuses:
+      # Must be a simple list to be encoded into BSON
+      filter_['status'] = {
+          '$in': list(self._report_config.configuration.recordStatuses)}
 
     print(filter_)
 
@@ -159,12 +203,11 @@ class Reporter(record_processor.DbChunkProcessor):
 
     # Done. Add a log entry.
 
-    msg = f'Generated {self.report_config["config"]["name"]} and saved to CSV'
+    msg = f'Generated "{self._report_config.name}" and saved to CSV'
     self.file.log.append(self._make_log_entry(False, msg))
     # Can't update status because there might be others, so let
     # status_scheduler figure that out.
     self._update_file(['log'])
-
 
 
   def _process_record(self, records: list[helpers.Record]) -> None:
@@ -189,7 +232,7 @@ class CsvReporter(Reporter):
   _writer: t.Any
 
   def _writer_open(self, header: t.Optional[list[str]]):
-    self._file = self._report_path.open('w')
+    self._file = self.report_path.open('w')
     self._writer = csv.writer(self._file)
 
     if header:

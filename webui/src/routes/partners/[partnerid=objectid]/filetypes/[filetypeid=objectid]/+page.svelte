@@ -9,8 +9,8 @@
     FileType,
     RecordType,
     FieldType
-  } from '$lib/protos/config_pb';
-  import { Function } from '$lib/protos/functions_pb';
+  } from '$lib/rivoli/protos/config_pb';
+  import { Function } from '$lib/rivoli/protos/functions_pb';
 
   import FileTypeForm from '$lib/components/FileTypeForm.svelte';
   import type { JsonValue } from '@bufbuild/protobuf';

@@ -6,26 +6,25 @@
     Checkbox,
     Dropdown,
     Grid,
-    NumberInput,
     Row,
     Column,
-    Form,
     FormGroup,
     FormLabel,
-    Tabs,
-    Tab,
-    TabContent,
     TextInput
   } from 'carbon-components-svelte';
   import Add from 'carbon-icons-svelte/lib/Add.svelte';
 
   import { makeObjectId } from '$lib/helpers/utils';
-  import { FieldType, FileType, RecordType } from '$lib/protos/config_pb';
+  import {
+    FieldType,
+    FileType,
+    RecordType
+  } from '$lib/rivoli/protos/config_pb';
   import FunctionEditor from './FunctionEditor.svelte';
   import FunctionMultiEditor from './FunctionMultiEditor.svelte';
   import StringList from '$lib/components/StringList.svelte';
   import FieldTypeSubForm from './FieldTypeSubForm.svelte';
-  import { Function_FunctionType } from '$lib/protos/functions_pb';
+  import { Function_FunctionType } from '$lib/rivoli/protos/functions_pb';
 
   export let recordtype: RecordType;
   export let filetype: FileType;

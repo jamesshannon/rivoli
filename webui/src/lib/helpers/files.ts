@@ -1,4 +1,7 @@
-import { File_Status, type RecordStats } from '$lib/protos/processing_pb';
+import {
+  File_Status,
+  type RecordStats
+} from '$lib/rivoli/protos/processing_pb';
 
 function loaded(stats: RecordStats) {
   return stats.loadedRecordsSuccess + stats.loadedRecordsError;

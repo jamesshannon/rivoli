@@ -1,7 +1,6 @@
 syntax = "proto3";
 package rivoli.protos.processing;
 
-
 message File {
   // This is a 4-btye (sequential) integer so that it can be used as part of
   // the (optimized) Record ID.
@@ -19,7 +18,6 @@ message File {
   uint32 updated = 5;
 
   Status status = 6;
-  uint32 lockKey = 21;
   bool requiresReview = 9;
 
   string fileTypeId = 7;
@@ -31,6 +29,8 @@ message File {
   string fileDate = 17;
   map<string, string> tags = 13;
 
+  repeated OutputInstance outputs = 21;
+
   repeated ProcessingLog log = 8;
   repeated ProcessingLog recentErrors = 20;
 
@@ -38,7 +38,7 @@ message File {
   RecordTimes times = 19;
 
   enum Status {
-    STATUS_UNKNOWN = 0;
+    FILE_STATUS_UNKNOWN = 0;
     NEW = 5;
 
     LOADING = 10;
@@ -93,7 +93,7 @@ message Record {
 
   string sharedKey = 11;
 
-  // should be a oneof, but oneof's don't allow repeated fields
+  // should be a oneof, but oneof's don't allIow repeated fields
   string rawLine = 6;
   repeated string rawColumns = 7;
 
@@ -108,7 +108,7 @@ message Record {
   string uploadConfirmationId = 14;
 
   enum Status {
-    STATUS_UNKNOWN = 0;
+    RECORD_STATUS_UNKNOWN = 0;
 
     LOAD_ERROR = 10;
     LOADED = 20;
@@ -210,6 +210,17 @@ message ProcessingLog {
   }
 }
 
+message ApiLog {
+  uint32 request_time = 1;
+  string method = 2;
+  string url = 3;
+  string body = 4;
+  uint32 response_code = 5;
+  float request_duration = 6;
+
+
+}
+
 message RecordTimes {
   uint32 loadingStartTime = 1;
   uint32 loadingEndTime = 2;
@@ -254,4 +265,26 @@ message StepStats {
   uint32 input = 2;
   uint32 success = 3;
   uint32 failure = 4;
+}
+
+message OutputInstance {
+  string id = 1;
+  string outputId = 2;
+  Status status = 3;
+
+  uint32 startTime = 4;
+  uint32 endTime = 5;
+
+  repeated ProcessingLog log = 6;
+
+  string outputFilename = 7;
+
+  enum Status {
+    OUTPUTINSTANCE_STATUS_UNKNOWN = 0;
+
+    NEW = 1;
+    PROCESSING = 2;
+    ERROR = 3;
+    SUCCESS = 4;
+  }
 }

@@ -12,7 +12,7 @@
     Button
   } from 'carbon-components-svelte';
 
-  import { Partner } from '$lib/protos/config_pb';
+  import { Partner } from '$lib/rivoli/protos/config_pb';
 
   import StringMapping from '$lib/components/StringMapping.svelte';
 

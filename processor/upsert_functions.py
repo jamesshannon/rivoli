@@ -4,7 +4,6 @@ import argparse
 import json
 import pathlib
 
-import bson
 import pymongo
 
 from rivoli import db

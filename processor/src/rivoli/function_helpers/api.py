@@ -7,8 +7,11 @@ import requests.exceptions
 
 from rivoli import protos
 from rivoli.function_helpers import exceptions
+from rivoli.utils import logging
 
 DRYRUN_POST = os.getenv('API_POST_DRYRUN', 'FALSE') != 'FALSE'
+
+logger = logging.get_logger(__name__)
 
 # These codes allow for an automatic retry.
 AUTORETRY_CODES: t.Sequence[t.Union[int, 'protos.ProcessingLog.ErrorCode']] = (
@@ -22,7 +25,7 @@ def make_request(method: str, url: str, **kwargs: t.Any) -> t.Any:
   timeout = kwargs.pop('timeout', 10)
 
   if method.upper() == 'POST' and DRYRUN_POST:
-    print(f'Skipping API post to {url} because of dryrun')
+    logger.warn(f'Skipping API post to {url} because of dryrun')
     return {}
 
   try:

@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
 import { db, getNextId, upsert } from '$lib/server/db';
-import { Partner } from '$lib/protos/config_pb';
+import { Partner } from '$lib/rivoli/protos/config_pb';
 
 export const POST = (async ({ request }) => {
   const partner = Partner.fromJson(await request.json());

@@ -80,10 +80,19 @@ def get_filter_map(msg: message.Message, fields: list[str]
 def get_update_args(msg: message.Message, update_fields: list[str],
     filter_fields: t.Optional[list[str]] = None
     ) -> tuple[dict[str, t.Any], dict[str, t.Any]]:
+  """ Get tuple of (filter, update_map) to pass to mongo functions.
+  First item is the filter map using, by default, the Message's ID.
+  Second item is the update map with fields from the Message to (un)set.
+  """
   filter_fields = filter_fields or ['id']
 
   return (get_filter_map(msg, filter_fields),
           get_update_map(msg, update_fields))
 
 def now() -> int:
+  """ Now timestamp compatible with protobufs (ie, uint32) """
   return int(time.time())
+
+def hex_id() -> str:
+  """ Hex representation of BSON ObjectID. """
+  return str(bson.ObjectId())
