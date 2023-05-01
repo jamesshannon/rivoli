@@ -16,7 +16,7 @@
   import { SvelteDataTable } from '@mac-barrett/svelte-data-table';
 
   import { dateTime, escapeHTML, syntaxHighlight } from '$lib/helpers/utils';
-  import { type Partner, FileType } from '$lib/protos/config_pb';
+  import { type Partner, FileType } from '$lib/rivoli/protos/config_pb';
   import {
     File,
     File_Status,
@@ -24,7 +24,12 @@
     RecordStats,
     Record_RecordTypeRef,
     Record_Status
-  } from '$lib/protos/processing_pb';
+  } from '$lib/rivoli/protos/processing_pb';
+  import {
+    REVERTABLE_MAP,
+    RecordsFilter
+  } from '$lib/helpers/file_processing/records';
+  import Records from '$lib/components/FileProcessing/Records.svelte';
 
   export let data: PageData;
   let file = File.fromJson(data.file as any, { ignoreUnknownFields: true });
@@ -49,22 +54,9 @@
     [802, 'Timeout Error']
   ]);
 
-  class RecordsFilter {
-    status: string = '';
-    errorCode: string = '';
-
-    get filterObj(): { [key: string]: string } {
-      return { status: this.status, errorCode: this.errorCode };
-    }
-
-    reset() {
-      this.status = '';
-      this.errorCode = '';
-    }
-  }
-
   let filter = new RecordsFilter();
   let filteredResultCount = 0;
+  let statusCounts: Map<string, number> = new Map();
 
   async function retrieveRecords(requestData, callback, settings) {
     console.log(requestData, settings);
@@ -97,18 +89,19 @@
       records.push(record);
     }
 
-    statusDropdownOptions = [statusDropdownAllOption].concat(
-      Object.entries(result.statusCounts).map(([status, cnt]) => ({
-        id: status,
-        text: `${Record_Status[status]} (${cnt})`
-      }))
-    );
+    statusCounts = new Map(Object.entries(result.statusCounts));
+    // statusDropdownOptions = [statusDropdownAllOption].concat(
+    //   Object.entries(result.statusCounts).map(([status, cnt]) => ({
+    //     id: status,
+    //     text: `${Record_Status[status]} (${cnt})`
+    //   }))
+    // );
 
-    if (filter.status) {
-      filteredResultCount = result.statusCounts[filter.status] || 0;
-    } else {
-      filteredResultCount = file.stats?.totalRows || 0;
-    }
+    // if (filter.status) {
+    //   filteredResultCount = result.statusCounts[filter.status] || 0;
+    // } else {
+    //   filteredResultCount = file.stats?.totalRows || 0;
+    // }
 
     console.log(records[3]);
 
@@ -297,19 +290,6 @@
     alert(JSON.stringify(response));
   }
 
-  // Allow reverting of record statuses when only one status is filtered and
-  // that status is a PARSE_ERROR, VALIDATION_ERROR, or UPLOAD_ERROR
-  const REVERTABLE_MAP = new Map([
-    [Record_Status.PARSE_ERROR, [Record_Status.LOADED]],
-    [
-      Record_Status.VALIDATION_ERROR,
-      [Record_Status.LOADED, Record_Status.PARSED]
-    ],
-    [
-      Record_Status.UPLOAD_ERROR,
-      [Record_Status.LOADED, Record_Status.PARSED, Record_Status.VALIDATED]
-    ]
-  ]);
   let revertToDropdownOptions: Array<{ id: string; text: string }> = [];
   let revertToId: string;
 
@@ -330,6 +310,8 @@
   onMount(async () => {
     console.log(myDataTable.getAPI());
   });
+
+  $: console.log(filter.status);
 </script>
 
 <Breadcrumb noTrailingSlash>
@@ -339,24 +321,7 @@
   <BreadcrumbItem isCurrentPage>Records</BreadcrumbItem>
 </Breadcrumb>
 
-<div id="filters">
-  <Dropdown
-    type="inline"
-    titleText="Status"
-    items={statusDropdownOptions}
-    bind:selectedId={filter.status}
-    on:select={filterStatusSelected}
-  />
-
-  <Button
-    size="field"
-    kind="tertiary"
-    disabled={!revertModalEnabled}
-    on:click={() => {
-      retryModalOpen = true;
-    }}>Revert Record Statuses</Button
-  >
-</div>
+<Records {file} {filetype} {statusCounts} bind:filter />
 
 <div class="localmodal">
   <Modal
