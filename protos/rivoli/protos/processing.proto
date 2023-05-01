@@ -46,22 +46,31 @@ message File {
     LOADED = 15;
 
     PARSING = 20;
+    PARSE_ERROR = 22;
     PARSED = 25;
 
     VALIDATING = 30;
+    VALIDATE_ERROR = 32;
     VALIDATED = 35;
 
     AGGREGATING = 40;
+    AGGREGATE_ERROR = 42;
     AGGREGATED = 45;
 
     WAITING_APPROVAL_TO_UPLOAD = 50;
+    APPROVED_TO_UPLOAD = 51;
 
     UPLOADING = 60;
     UPLOADING_RESTARTING = 61;
     UPLOADING_RETRY_PAUSE = 62;
+    UPLOAD_ERROR = 70;
     UPLOADED = 80;
 
-    COMPLETED = 100;
+    REPORTING = 100;
+    REPORT_ERROR = 110;
+    REPORTED = 120;
+
+    COMPLETED = 500;
   }
 }
 
@@ -160,6 +169,7 @@ message ProcessingLog {
   string field = 6;
   string functionId = 7;
 
+  string stackTrace = 9;
 
   enum LogSource {
     LOGSOURCE_UNKNOWN = 0;

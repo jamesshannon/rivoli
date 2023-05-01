@@ -1,9 +1,13 @@
 """ Mongodb connection setup. """
 import typing as t
 
+from google.protobuf import message
 import pymongo
 
 from rivoli import config
+from rivoli.protobson import bson_format
+
+Msg = t.TypeVar('Msg', bound=message.Message)
 
 DB_NAME = 'testdb'
 mongo_client:  pymongo.MongoClient[dict[str, t.Any]]
@@ -35,3 +39,9 @@ def get_next_id(collection: str, offset: int = 0) -> int:
       {'_id': str(collection)}, {'$inc': {'value': 1}},
       upsert=True, return_document=True)
   return int(response['value']) + offset
+
+def get_one_by_id(collection: str, id_: t.Union[str, int], msgtype: type[Msg]
+    ) -> Msg:
+  """ Get a single message by ID. """
+  return bson_format.to_proto(
+    msgtype, get_db()[collection].find_one({'_id': id_}))

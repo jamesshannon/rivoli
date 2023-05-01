@@ -5,10 +5,13 @@ import hashlib
 import importlib
 import inspect
 import json
+import os
 import pathlib
+import sys
 import types
 import typing as t
 
+from rivoli.function_helpers import helpers
 from rivoli.protobson import bson_format
 from rivoli import protos
 
@@ -19,17 +22,23 @@ PYTHON_INSPECT_TYPE_MAP = {
   'bool': protos.Function.BOOLEAN,
 }
 
-FUNCTION_TYPE_SIGNATURE_REQUIREMENTS = {
-  protos.Function.FIELD_VALIDATION: [['value', 'str'], 'str'],
-  protos.Function.RECORD_VALIDATION: [['record', 'dict'], 'dict'],
-  protos.Function.RECORD_UPLOAD: [['record', 'dict'], 'dict'],
-  protos.Function.RECORD_UPLOAD_BATCH: [['records', 'list'], 'str'],
+Param = t.Tuple[str, t.Type[t.Any]]
+Return = t.Union[list[t.Type[t.Any]], t.Type[t.Any]]
+
+FUNCTION_TYPE_SIGNATURE_REQUIREMENTS: \
+    dict[helpers.FunctionType, t.Tuple[Param, Return]] = {
+  helpers.FunctionType.FIELD_VALIDATION: (('value', str), str),
+  helpers.FunctionType.RECORD_VALIDATION: (('record', helpers.Record), dict[str, str]),
+  helpers.FunctionType.RECORD_UPLOAD: (('record', helpers.Record), str),
+  helpers.FunctionType.RECORD_UPLOAD_BATCH: (('records', list[helpers.Record]),
+                                        str),
 }
 
 def parse_args() -> argparse.Namespace:
   """ Argparser for this file. """
   parser = argparse.ArgumentParser()
   parser.add_argument('output_file')
+  parser.add_argument('--I', dest='include', default='.')
   parser.add_argument('--module', dest='module',
                       default='rivoli.validation.validators')
 
@@ -40,11 +49,11 @@ def set_id(function: protos.Function):
   This provides ID stability based on "important" attributes, and also forces
   a new ID if those attributes are changed.
   """
-  attributes = '|'.join([str(function.type), function.name] +
+  attributes = '|'.join([str(function.type), function.pythonFunction] +
                         [str(p.type) for p in function.parameters])
   function.id = hashlib.md5(attributes.encode('utf-8')).hexdigest()[:24]
 
-def get_parameters(sig: inspect.Signature, function_type: int
+def get_parameters(sig: inspect.Signature, function_type: helpers.FunctionType
     ) -> list[protos.Function.Parameter]:
   """ Generate proto Parameters from the function signature. """
   parameters: list[protos.Function.Parameter] = []
@@ -55,14 +64,14 @@ def get_parameters(sig: inspect.Signature, function_type: int
   # Check that the first parameter is value:str
   param = sig_params[0]
 
-  if not (param.name == reqs[0][0] and param.annotation.__name__ == reqs[0][1]):
+  if not (param.name == reqs[0][0] and param.annotation == reqs[0][1]):
     raise ValueError(('First parameter is invalid. Expected '
                       f'`{reqs[0][0]}: {reqs[0][1]}` but got '
                       f'`{param.name}: {param.annotation.__name__}`'))
 
   # Confirm that the function returns a str
-  return_typ = sig.return_annotation.__name__ if sig.return_annotation else None
-  if not (return_typ == reqs[1]):
+  return_typ = sig.return_annotation if sig.return_annotation else None
+  if not return_typ == reqs[1]:
     raise ValueError(('Return annotation is invalid. Expected '
                       f'`{reqs[1]}` but got `{return_typ}`'))
 
@@ -101,18 +110,20 @@ def get_callables(args: argparse.Namespace) -> list[protos.Function]:
             and hasattr(symbol, '_deprecated')
             and hasattr(symbol, '_function_type')):
           print(symbol_name, end=', ')
+
           full_function_name = f'{module_name}.{symbol_name}'
 
+          # pylint: disable=protected-access
+          # pyright: reportUnknownMemberType=false
+          # pyright: reportGeneralTypeIssues=false
+          # pyright: reportUnknownArgumentType=false
           deprecated = t.cast(bool, symbol._deprecated)
-          function_type = symbol._function_type
+          function_type = t.cast(helpers.FunctionType,
+                                 symbol._function_type)
 
-          # Format the docstring
-          docs = str(inspect.getdoc(symbol)).strip()
-          newline_idx = docs.find('\n') + 1
-          # Only make changes if the doc has an first newline and also at least
-          # one additional newline
-          if newline_idx > 0 and docs.find('\n', newline_idx) > 0:
-            docs = docs[:newline_idx] + docs[newline_idx:].replace('\n', ' ')
+          # Format the docstring as markdown. Markdown ignores most newlines so
+          # double the first newline.
+          docs = str(inspect.getdoc(symbol)).strip().replace('\n', '\n\n', 1)
 
           signature = inspect.signature(symbol)
 
@@ -122,16 +133,23 @@ def get_callables(args: argparse.Namespace) -> list[protos.Function]:
             active=True,
             isGlobal=True,
             isSystem=True,
-            type=function_type,
+            type=function_type.value,
 
             name=symbol_name,
             description=docs,
+
+            tags=symbol._tags,
+            input_keys=symbol._input_keys,
+            output_keys=symbol._output_keys,
 
             pythonFunction=full_function_name,
             parameters=params,
           )
 
-          set_id(function)
+          if symbol._function_id:
+            function.id = symbol._function_id
+          else:
+            set_id(function)
 
           callables.append(function)
 
@@ -140,7 +158,14 @@ def get_callables(args: argparse.Namespace) -> list[protos.Function]:
   return callables
 
 if __name__ == '__main__':
+  os.environ['RIVOLI_FUNCTION_PARSE'] = 'true'
+
   parsed = parse_args()
+
+  # add include path to sys.path
+  if parsed.include:
+    sys.path.append(str(pathlib.Path(parsed.include).absolute()))
+
   calls = get_callables(parsed)
   with open(parsed.output_file, 'w', encoding='ascii') as fobj:
     json.dump([bson_format.from_proto(c, ordered=True) for c in calls],

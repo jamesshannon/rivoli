@@ -7,14 +7,17 @@ import pymongo
 from rivoli import admin_entities
 from rivoli.protobson import bson_format
 from rivoli import protos
-from rivoli.utils import tasks
 from rivoli import db
 from rivoli import record_processor
+from rivoli import status_scheduler
+from rivoli.function_helpers import exceptions
+from rivoli.function_helpers import helpers
 from rivoli.validation import handler
-from rivoli.validation import helpers
-from rivoli.utils import processing
+from rivoli.utils import tasks
 
-
+# Disable pyright checks due to Celery
+# pyright: reportFunctionMemberAccess=false
+# pyright: reportUnknownMemberType=false
 
 @tasks.app.task
 def validate(file_id: int) -> None:
@@ -29,105 +32,104 @@ def validate(file_id: int) -> None:
 
   #_validate(file, ft)
   v = Validator(file, partner, filetype)
-  v.validate()
+  v.process()
 
-  # decide what to do next.
-  # aggregating if there are aggregation steps
-  # if not, then waiting for approval if that flag is set and there are >0 errors
-  # if not, then upload if upload is configured
-  # if not, then direct to completed
+  status_scheduler.next_step(file, filetype)
 
-class Validator(record_processor.DbRecordProcessor):
+
+class Validator(record_processor.DbChunkProcessor):
   """ Class to validate records.
   No need to subclass this as validation will not differ by file type. """
-
   log_source = protos.ProcessingLog.VALIDATOR
+
+  _only_process_record_status = protos.Record.PARSED
+  _fields_field = 'parsedFields'
+
+  _success_status = protos.File.VALIDATED
+  _error_status = protos.File.VALIDATE_ERROR
+
+  _step_stat_prefix = 'VALIDATE'
 
   def __init__(self, file: protos.File, partner: protos.Partner,
       filetype: protos.FileType) -> None:
     super().__init__(file, partner, filetype)
 
     self.errors: list[protos.ProcessingLog] = []
+    """ Accumulation of a Record's errors. """
 
     # Dict in the form of dct[RecordTypeId, dct[FieldTypeId, functionconfigs]
     self.field_validations: dict[int, dict[str, list[protos.FunctionConfig]]] = \
         collections.defaultdict(lambda: collections.defaultdict(list))
 
-    self.functions: dict[str, protos.Function]
-
-  def validate(self):
+  def _process(self):
     """ Validate all the records. """
     function_ids: set[str] = set()
 
     # 1) Get all function_ids that we'll need so that we can create a dict
-    # 2) Create a mapping of this file's (RecordTypes, FieldTypes) to list of
-    #    validation configurations
+    # 2) Create a mapping of this file's FieldTypes to list of
+    #    validation configurations. We already have a recordtypes_map
     for recordtype in self.filetype.recordTypes:
       function_ids.update([val.functionId for val in recordtype.validations])
+
       for fieldtype in recordtype.fieldTypes:
         for validation in fieldtype.validations:
           self.field_validations[recordtype.id][fieldtype.name].append(
               validation)
           function_ids.add(validation.functionId)
 
-    self.functions = admin_entities.get_functions_by_ids(function_ids)
+    self._functions = admin_entities.get_functions_by_ids(function_ids)
 
     self._clear_stats('VALIDATE')
 
-    self._update_status_to_processing(protos.File.VALIDATING)
+    self._update_status_to_processing(protos.File.VALIDATING,
+        protos.File.PARSED)
     self.file.times.validatingStartTime = bson_format.now()
 
-    # This will not (currently) return records which need to be re-validated.
-    # protos.Record.PARSED
-    try:
-      self._process_records(self._get_all_records())
-    except Exception as exc:
-      pass
-
+    self._process_records(self._get_all_records())
     # Need to decide how to move onto the next step. What is the status if >0
     # Records failed validation? Probably still VALIDATED?
     # Then do we go onto processing or place it on PROCESSING_HOLD?
 
     # Final update to the File record
-    self.file.status = protos.File.VALIDATED
     self.file.log.append(self._make_log_entry(False, 'Validated records'))
-    self._update_file(['status', 'log', 'recentErrors', 'times', 'stats'])
 
   # Will also need an entrypoint to call this so that the UI can try to
   # (re-)validate a Record after a manual edit
-  def _process_one_record(self, record: protos.Record
+  def _process_record(self, records: list[helpers.Record]
       ) -> t.Optional[pymongo.UpdateOne]:
+    assert len(records) == 1
+    record = records[0]
+    raw_record = record.updated_record
+
     validated_fields: dict[str, str] = {}
 
     self.errors.clear()
+    file_exception: t.Optional[Exception] = None
 
-    recordtype = record.recordType
+    step_stat = self._get_step_stat(raw_record)
+    step_stat.input += 1
 
-    if recordtype == protos.Record.HEADER:
-      return None
-
-    ss_base_name = f'VALIDATE.{recordtype}'
-    ss = self.file.stats.steps[ss_base_name]
-    ss.input += 1
-
-    # Ideally the record is *only* parsed, but make sure that it's *at least*
-    # parsed. This is an invariant.
-    if record.status < protos.Record.PARSED:
-      ss.failure += 1
-      return None
+    record_type_id = raw_record.recordType
 
     # Loop through each field and apply validations & modifications
-    for field_name, value in record.parsedFields.items():
-      ss_field = self.file.stats.steps[f'{ss_base_name}.{field_name}']
+    for field_name, value in record.items():
+      ss_field = self._get_step_stat(raw_record, field_name)
       ss_field.input += 1
 
-      for cfg in self.field_validations[recordtype][field_name]:
-        success, value = self._call_function(protos.Function.FIELD_VALIDATION,
-            cfg, value, field_name)
-
-        if not success:
+      for cfg in self.field_validations[record_type_id][field_name]:
+        try:
+          value = t.cast(str, self._call_function(
+              protos.Function.FIELD_VALIDATION, cfg, value, field_name))
+        except Exception as exc: # pylint: disable=broad-exception-caught
           ss_field.failure += 1
           # No additional validations for this field
+
+          # File level exceptions are any exception that's not a Record-level
+          # exception, and requires us to re-raise later.
+          if not isinstance(exc,
+              (exceptions.ValidationError, exceptions.ConfigurationError)):
+            file_exception = exc
+
           break
 
       validated_fields[field_name] = str(value)
@@ -136,78 +138,106 @@ class Validator(record_processor.DbRecordProcessor):
     # we need to unset the previous values
 
     # Only do record validations if all fields validated successfully
-    if not self.errors:
-      for cfg in self.recordtypes_map[recordtype].validations:
-        success, result = self._call_function(protos.Function.RECORD_VALIDATION,
-            cfg, validated_fields)
+    # At this point the validatedFields become the record's fields
+    record.clear()
+    record.update(validated_fields)
 
-        if not success:
-          # No additional validations for this record
+    if not self.errors:
+      for cfg in self.recordtypes_map[record_type_id].validations:
+        try:
+          validated_fields = t.cast(dict[str, str],
+              self._call_function(protos.Function.RECORD_VALIDATION, cfg,
+              record))
+        except Exception as exc: # pylint: disable=broad-exception-caught
+          # File level exceptions are any exception that's not a Record-level
+          # exception, and requires us to re-raise later.
+          if not isinstance(exc,
+              (exceptions.ValidationError, exceptions.ConfigurationError)):
+            file_exception = exc
+
           break
 
-        validated_fields = t.cast(dict[str, str], result)
+        # NEED TO HANDLE FILE_EXCEPTION AND TO FIGURE OUT HOW TO OVERWRITE THE RECORD, AND ALSO VALIDATED_FIELDS
+        # OVERWRITE RECORD HERE, AND THEN SET VALIDATED FIELDS LATER?
 
-    # Clear the *record*-level recent validation errors, in case we're
-    # re-validating this record
-    del record.recentErrors[:]
-    record.validatedFields.clear()
+        # result_dct should be complete -- if the record-validation function
+        # removes a field then we don't want to keep it
+        record.clear()
+        record.update(validated_fields)
+
+    # Clear the *record*-level field values, in case we're revalidating
+    record.updated_record.validatedFields.clear()
 
     if not self.errors:
       # No errors for this Record.
       # Update Record with the validated_fields, which might be different from
       # parsed_fields, set status and add item to the log
       self.file.stats.validatedRecordsSuccess += 1
-      record.status = record.VALIDATED
+      record.updated_record.status = protos.Record.VALIDATED
 
       # Coerce all the fields to strings, in case they aren't
-      validated_fields = {key: str(val) for key, val
-                          in validated_fields.items()}
-      record.validatedFields.update(validated_fields)
+      record.updated_record.validatedFields.update({key: str(val) for key, val
+                                                in validated_fields.items()})
 
-      ss.success += 1
+      step_stat.success += 1
     else:
       # There was at least one error for this Record. It could be a validation
       # and/or execution error
       # Update Record with the errors, set the status, and add items to the logs
       self.file.stats.validatedRecordsError += 1
 
-      record.status = record.VALIDATION_ERROR
+      record.updated_record.status = protos.Record.VALIDATION_ERROR
       # Add errors to the permanent log and also the recentErrors, which was
       # recently cleared
-      record.log.extend(self.errors)
-      record.recentErrors.extend(self.errors)
+      record.updated_record.log.extend(self.errors)
+      record.updated_record.recentErrors.extend(self.errors)
 
-      ss.failure += 1
+      step_stat.failure += 1
 
     # update the record
-    return self._make_update(record,
+    update = self._make_update(record.updated_record,
         ['status', 'validatedFields', 'log', 'recentErrors'])
 
+    # file_exception is any exception that's of a type that's not a record-
+    # level exception and thus needs to be handled up-stack. If that was set
+    # then we've already updated the record fields. Now we re-raise the
+    # exception (with the record).
+    if file_exception:
+      file_exception.update = update # pyright: reportGeneralTypeIssues=false
+      raise file_exception
+
+    return update
+
   def _call_function(self, typ: 'protos.Function.FunctionType',
-      cfg: 'protos.FunctionConfig', value: t.Union[str, dict[str, str]],
-      field_name: str = '') -> t.Tuple[bool, t.Union[str, dict[str, str]]]:
+      cfg: 'protos.FunctionConfig', value: t.Union[str, helpers.Record],
+      field_name: str = '') -> t.Union[str, dict[str, str]]:
     """ Call a validation function, handle exceptions, and return result. """
-    validator = self.functions[cfg.functionId]
+    validator = self._functions[cfg.functionId]
     try:
       result = handler.call_function(typ, cfg, validator, value)
 
-      return (True, result)
+      return result
 
-    except Exception as exc: # type: ignore=broad-exception-caught
-      error_code = getattr(exc, 'error_code', '')
+    except Exception as exc:
+      error_code = getattr(exc, 'error_code',
+                           protos.ProcessingLog.ERRORCODE_UNKNOWN)
 
       log = self._make_log_entry(True, str(exc), field=field_name,
           functionId=validator.id, error_code=error_code)
+      exc.record_updated = True
       self.errors.append(log)
 
-      if isinstance(exc, helpers.ValidationError):
+      if isinstance(exc, exceptions.ValidationError):
         self.file.stats.validationErrors += 1
-      elif isinstance(exc, helpers.ExecutionError):
+      elif isinstance(exc, exceptions.ExecutionError):
         self.file.stats.validationExecutionErrors += 1
       else: # ConfigurationError or other Exception
         # No stats to update. Set the instance method to this exception so that
         # it can be handled later
         self.file.stats.validationExecutionErrors += 1
-        self.unhandled_exception = exc
 
-      return (False, '')
+      raise exc
+
+  def _close_processing(self) -> None:
+    self.file.times.validatingEndTime = bson_format.now()
+    self._update_file(['status', 'log', 'recentErrors', 'times', 'stats'])

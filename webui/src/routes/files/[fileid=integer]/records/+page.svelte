@@ -15,25 +15,28 @@
 
   import { SvelteDataTable } from '@mac-barrett/svelte-data-table';
 
-  import { dateTime, escapeHTML } from '$lib/helpers/utils';
+  import { dateTime, escapeHTML, syntaxHighlight } from '$lib/helpers/utils';
   import { type Partner, FileType } from '$lib/protos/config_pb';
   import {
     File,
     File_Status,
     Record,
+    RecordStats,
     Record_RecordTypeRef,
     Record_Status
   } from '$lib/protos/processing_pb';
 
   export let data: PageData;
-  let file = File.fromJson(data.file as any);
-  const filetype = FileType.fromJson(data.fileType as any);
+  let file = File.fromJson(data.file as any, { ignoreUnknownFields: true });
+  const filetype = FileType.fromJson(data.fileType as any, {
+    ignoreUnknownFields: true
+  });
   const recordTypes = new Map(filetype.recordTypes.map((rt) => [rt.id, rt]));
 
   const statusDropdownAllOption = { id: '', text: 'All Statuses' };
   let statusDropdownOptions: Array<any> = [statusDropdownAllOption];
   let retryModalOpen = false;
-  let retryModalEnabled = false;
+  let revertModalEnabled = false;
 
   // These are values for the ProcessingLog.errorCode enum value. Ideally we'd
   // use that generated enum, but in this case the value might be an HTTP status
@@ -41,7 +44,7 @@
   const processingLogErrorCodes = new Map([
     [600, 'Validation Error'],
     [700, 'Operation Error'],
-    [800, 'Excecutin Error'],
+    [800, 'Execution Error'],
     [801, 'Connection Error'],
     [802, 'Timeout Error']
   ]);
@@ -86,7 +89,7 @@
       if (record.recordType < 1000) {
         record.recordType = Record_RecordTypeRef[record.recordType];
       } else {
-        record.recordType = recordTypes.get(record.recordType)?.name;
+        record.recordType = recordTypes.get(record.recordType)?.name || '';
       }
 
       record.status = Record_Status[record.status];
@@ -120,13 +123,21 @@
   function renderLogList(logs: Array<any>) {
     let html = '<ul>';
     for (let log of logs) {
-      html += `<li><h5>
-				${processingLogErrorCodes.get(log.errorCode) || log.errorCode || ''} -
-				<span>${dateTime(log.time)}</span>
-      </h5>
-			${escapeHTML(log.message)}</li>`;
+      html += `<li>
+        <h6>${escapeHTML(log.message)}</h6>
+        <span>${dateTime(log.time)}</span> -
+				${processingLogErrorCodes.get(log.errorCode) || log.errorCode || ''}
+			</li>`;
     }
     return html + '</ul>';
+  }
+
+  function renderRowNum(data, type: string, row) {
+    if (type === 'display') {
+      return `<div title="${row.id}">${row.num}</div>`;
+    }
+
+    return row.num;
   }
 
   function renderErrors(data, type: string, row) {
@@ -154,28 +165,27 @@
     const lines = [];
     if (data.rawColumns) {
       lines.push(
-        '<div><h5>Raw Columns</h5>' +
+        '<div><h5>Raw Columns</h5><pre>' +
           data.rawColumns
-            .map((str: string) => `<span>${str}</span>`)
+            .map((str: string) => `<span class="raw">${str}</span>`)
             .join(',') +
-          '</div>'
+          '</pre></div>'
       );
     }
     if (data.parsedFields) {
       lines.push(
-        '<div><h5>Parsed Fields</h5>' +
-          JSON.stringify(data.parsedFields, null, 2) +
-          '</div>'
+        '<div><h5>Parsed Fields</h5><pre class="pretty_json">' +
+          syntaxHighlight(data.parsedFields) +
+          '</pre></div>'
       );
     }
     if (data.validatedFields) {
       lines.push(
-        '<div><h5>Validated Fields</h5>' +
-          JSON.stringify(data.validatedFields, null, 2) +
-          '</div>'
+        '<div><h5>Validated Fields</h5><pre class="pretty_json">' +
+          syntaxHighlight(data.validatedFields) +
+          '</pre></div>'
       );
     }
-
     if (data.log?.length) {
       lines.push('<div><h5>Log</h5>' + renderLogList(data.log) + '</div>');
     }
@@ -215,8 +225,9 @@
         defaultContent: '<div class="expand-button"></div>'
       },
       {
-        title: 'Record',
-        data: 'num'
+        title: 'Row',
+        data: null,
+        render: renderRowNum
       },
       {
         title: 'Record Type',
@@ -265,13 +276,17 @@
   async function revertRecordStatuses(evt: CustomEvent) {
     console.log('clicked', evt, filter.filterObj);
 
-    if (!retryModalEnabled) {
+    if (!revertModalEnabled) {
       return;
     }
 
     const resp = await fetch($page.url.pathname, {
       method: 'POST',
-      body: JSON.stringify({ action: 'REVERT', ...filter.filterObj })
+      body: JSON.stringify({
+        action: 'REVERT',
+        toStatus: revertToId,
+        ...filter.filterObj
+      })
     });
 
     const response = await resp.json();
@@ -282,11 +297,36 @@
     alert(JSON.stringify(response));
   }
 
-  $: {
-    retryModalEnabled =
-      filter.status == Record_Status.UPLOAD_ERROR.valueOf().toString();
-  }
+  // Allow reverting of record statuses when only one status is filtered and
+  // that status is a PARSE_ERROR, VALIDATION_ERROR, or UPLOAD_ERROR
+  const REVERTABLE_MAP = new Map([
+    [Record_Status.PARSE_ERROR, [Record_Status.LOADED]],
+    [
+      Record_Status.VALIDATION_ERROR,
+      [Record_Status.LOADED, Record_Status.PARSED]
+    ],
+    [
+      Record_Status.UPLOAD_ERROR,
+      [Record_Status.LOADED, Record_Status.PARSED, Record_Status.VALIDATED]
+    ]
+  ]);
+  let revertToDropdownOptions: Array<{ id: string; text: string }> = [];
+  let revertToId: string;
 
+  $: {
+    let statuses = REVERTABLE_MAP.get(parseInt(filter.status));
+    revertModalEnabled = !!statuses;
+
+    if (statuses) {
+      revertToDropdownOptions = statuses.map((s) => ({
+        id: s.toString(),
+        text: Record_Status[s]
+      }));
+
+      revertToId =
+        revertToDropdownOptions[revertToDropdownOptions.length - 1].id;
+    }
+  }
   onMount(async () => {
     console.log(myDataTable.getAPI());
   });
@@ -311,25 +351,34 @@
   <Button
     size="field"
     kind="tertiary"
-    disabled={!retryModalEnabled}
+    disabled={!revertModalEnabled}
     on:click={() => {
       retryModalOpen = true;
     }}>Revert Record Statuses</Button
   >
 </div>
 
-<Modal
-  bind:open={retryModalOpen}
-  modalHeading="Retry Records"
-  primaryButtonText="Confirm"
-  secondaryButtonText="Cancel"
-  on:click:button--primary={revertRecordStatuses}
-  on:click:button--secondary={() => (retryModalOpen = false)}
->
-  Revert {filteredResultCount} records to <code>VALIDATED</code>? This will
-  revert the record status for the {filteredResultCount} records in the table so
-  that the upload can be re-tried.
-</Modal>
+<div class="localmodal">
+  <Modal
+    bind:open={retryModalOpen}
+    modalHeading="Revert Records"
+    primaryButtonText="Confirm"
+    secondaryButtonText="Cancel"
+    on:click:button--primary={revertRecordStatuses}
+    on:click:button--secondary={() => (retryModalOpen = false)}
+  >
+    Revert {filteredResultCount} records to <Dropdown
+      size="sm"
+      type="inline"
+      items={revertToDropdownOptions}
+      selectedId={revertToId}
+    />?
+    <p>
+      Reverting the record status will cause these {filteredResultCount} records
+      and the file status to be reset.
+    </p>
+  </Modal>
+</div>
 
 <div class="local" on:click={expandRowHandler}>
   <SvelteDataTable bind:this={myDataTable} {config} />
@@ -389,6 +438,12 @@
   }
 
   .local :global(div.expanded_row) {
+    margin: 0 10px;
+    padding: 5px 10px;
+    background-color: rgba(128, 128, 128, 0.1);
+  }
+
+  .local :global(div.expanded_row pre) {
     font-family: Consolas, 'Andale Mono WT', 'Andale Mono', 'Lucida Console',
       'Lucida Sans Typewriter', 'DejaVu Sans Mono', 'Bitstream Vera Sans Mono',
       'Liberation Mono', 'Nimbus Mono L', Monaco, 'Courier New', Courier,
@@ -396,7 +451,34 @@
     white-space: pre-wrap;
   }
 
-  .local :global(div.expanded_row span) {
-    background: #dddddd;
+  .local :global(div.expanded_row span.raw) {
+    background-color: rgba(0, 0, 0, 0.1);
+  }
+
+  .local :global(.pretty_json .string) {
+    color: green;
+  }
+  .local :global(.pretty_json .number) {
+    color: darkorange;
+  }
+  .local :global(.pretty_json .boolean) {
+    color: blue;
+  }
+  .local :global(.pretty_json .null) {
+    color: magenta;
+  }
+  .local :global(.pretty_json .key) {
+    color: red;
+  }
+
+  .localmodal :global(.bx--dropdown__wrapper--inline) {
+    position: relative;
+    top: -5px;
+    grid-gap: 0;
+    gap: 0;
+  }
+
+  .localmodal :global(.bx--modal-content) {
+    overflow-y: visible;
   }
 </style>

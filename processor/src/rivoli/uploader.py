@@ -1,4 +1,5 @@
 """ Uploader Module. """
+import itertools
 import time
 import typing as t
 
@@ -10,9 +11,11 @@ from rivoli import admin_entities
 from rivoli import db
 from rivoli import protos
 from rivoli import record_processor
+from rivoli import status_scheduler
 from rivoli.utils import tasks
 from rivoli.validation import handler
-from rivoli.validation import helpers
+from rivoli.function_helpers import exceptions
+from rivoli.function_helpers import helpers
 
 mydb = db.get_db()
 
@@ -22,59 +25,51 @@ def get_file(file_id: int) -> protos.File:
 
 @tasks.app.task
 def upload(file_id: int) -> None:
-  mydb = db.get_db()
+  file = db.get_one_by_id('files', file_id, protos.File)
 
-  file = get_file(file_id)
-
-  # get the filetype config
+  # get the partner and filetype info
   partner = admin_entities.get_partner(file.partnerId)
   filetype = admin_entities.get_filetype(file.fileTypeId)
 
-  uploader = BatchRecordUploader(file, partner, filetype)
-  uploader.upload()
+  uploader = RecordUploader(file, partner, filetype)
+  uploader.process()
 
-  return None
+  status_scheduler.next_step(file, filetype)
 
-class BatchRecordUploader(record_processor.DbRecordProcessor):
+class RecordUploader(record_processor.DbChunkProcessor):
   """ Class to upload records. """
   log_source = protos.ProcessingLog.UPLOADER
-  update_fields = ['status', 'stats', 'log']
+  _fields_field = 'validatedFields'
+  _only_process_record_status = protos.Record.VALIDATED
+
+  _success_status = protos.File.UPLOADED
+  _error_status = protos.File.UPLOAD_ERROR
+
+  _record_error_status = protos.Record.UPLOAD_ERROR
+
+  _step_stat_prefix = 'UPLOAD'
 
   def __init__(self, file: protos.File, partner: protos.Partner,
       filetype: protos.FileType) -> None:
     super().__init__(file, partner, filetype)
 
-    self.functions: dict[str, protos.Function]
+    self._set_max_pending_records(self.filetype.uploadBatchSize)
 
-    self._groupby_field = self.filetype.uploadBatchGroupKey
+    self._groupby_field = filetype.uploadBatchGroupKey
+    """ Name of the field, if any, that uploads are grouped by. """
     self._current_groupby_value: t.Optional[str] = None
-    self._should_upload_batch = False
+    """ Value of the current group's groups-by key. """
 
-    # Get the batch size from the filetype. Default to 1 (no batching)
-    self._max_pending_uploads = self.filetype.uploadBatchSize or 1
-
-    # Max # of pending Mongo Operations before we issue a bulk_write
-    # In other stages this is around 1000, but that's 1:1 to the number of
-    # actual documents to update. In this case each write might be updating
-    # hundreds of documents, so we keep the # pending a little lower. We also
-    # don't want to get too out-of-sync with what we've done via the API
-    # This algorithm basically gives us a 5x benefit for bulk updates
-    self._max_pending_updates = min(int(5000 / self._max_pending_uploads), 1000)
-
-    self._is_batch = self._max_pending_uploads == 1
-
-    if not self._is_batch and len(self.filetype.recordTypes) > 1:
-      raise ValueError(('Batches not supported when FileType has more than one '
-                        'RecordType'))
+    self._uploaded_hashes: set[bytes]
+    """ Set of hashes of matching successfully-uploaded records. """
 
     # Retriable count is not part of the file.stats, so we track separately
-    self._retriable_records = 0
+    self._retriable_record_cnt = 0
+    """ Numer of retriable from this run. """
 
-  def upload(self):
+  def _process(self):
+    """ Upload the records. """
     # create a map of record types -> upload functions
-    # loop through all the records. work per record type
-    # skip if no upload function exists. maybe mark in log
-
     function_ids: set[str] = set()
 
     for recordtype in self.filetype.recordTypes:
@@ -83,41 +78,44 @@ class BatchRecordUploader(record_processor.DbRecordProcessor):
       if recordtype.upload:
         function_ids.add(recordtype.upload.functionId)
 
-    self.functions = admin_entities.get_functions_by_ids(function_ids)
+    self._functions = admin_entities.get_functions_by_ids(function_ids)
 
-    # don't clear stats because this might be a continuation.
-    # how to handle continuations? maybe check the status do some things if
-    # stutus is currently UPLOADING? But also what about a lock?
-    #self._clear_stats('UPLOAD')
+    # Don't clear stats because this might be a retry or continuation.
+    # How to handle continuations? maybe check the status do some things if
+    # Status is currently UPLOADING? But also what about a lock?
     self._update_status_to_processing(protos.File.UPLOADING)
     self.file.times.uploadingStartTime = bson_format.now()
     self._update_file(['status', 'updated', 'times'])
 
-    # When we're doing batch and there's a groupby key it would be good to
-    # order by the groupby key, but ideally we'd copy that value into its own
-    # column during the .. validation? step?
+    # When we're doing batch and there's a groupby key we need to
+    # order by the groupby key. For optimization, we'd ideally have copied that
+    # value into its own field during the ... validation step?
     kwargs = {}
     if self._groupby_field:
       # This will need to be modified if we stop using validatedFields
       kwargs['sort'] = [(f'validatedFields.{self._groupby_field}', 1)]
 
     self._process_records(
-        self._get_all_records(protos.Record.VALIDATED, False, **kwargs))
+        self._get_all_records(protos.Record.VALIDATED, True, **kwargs))
+
+    self._end_upload()
 
   def _end_upload(self):
     """ Determine next steps, such as marking the file as complete. """
     # Resetting retriable records should only occur when file is otherwise
     # complete
-    if self._retriable_records: # Records to retry
+    # How much of this should be part of the class vs not?
+    # At the least any celery-calls should not be part of this?
+    if self._retriable_record_cnt and False: # Records to retry
       # If we just use the internal count rather than a file count then
       # this will break after retry.
       # Update the records. This should mirror the webui files/ID/records code
       log = self._make_log_entry(False,
           'Reverted status to VALIDATED for auto-retry')
-      fltr = {
-        # !!!!!!! Need ID
+      filter_ = self._all_records_filter(protos.Record.UPLOAD_ERROR, False) | {
         'autoRetry': True
       }
+
       update: dict[str, t.Any] = {
           # Set the status to VALIDATED
           '$set': { 'status': protos.Record.VALIDATED },
@@ -131,9 +129,11 @@ class BatchRecordUploader(record_processor.DbRecordProcessor):
           '$inc': { 'retryCount': 1 }
       }
 
-      resp = self.db.records.update_many(fltr, update)
+      print(filter_, update)
+      resp = self.db.records.update_many(filter_, update)
       if resp.modified_count == 0:
         # Something went wrong
+        print('retry result', resp)
         pass
 
       log = self._make_log_entry(False,
@@ -173,163 +173,100 @@ class BatchRecordUploader(record_processor.DbRecordProcessor):
     # 2) Set to "pause" then create a new task
     # or 3) set to done and end task
 
-  def _process_one_record(self, record: protos.Record
-       ) -> t.Optional[pymongo.UpdateOne]: ...
+  def _preprocess_chunk(self, records: list[protos.Record]) -> None:
+    """ Pre-process the chunk of records and look for duplicates.
+    Query the database for matching hashes of already-uploaded records,
+    including from other files then save them to the instance so that they can
+    be checked during processing.
+    """
+    hashes = list(filter(None, [r.hash for r in records]))
+    hashes_cursor = self.db.records.find(
+        {'hash': {'$in': hashes}, 'status': {'$gte': protos.Record.UPLOADED}},
+        {'hash': 1, '_id': 0}
+    )
 
-  def _process_upload(self, record: protos.Record
-      ) -> t.Optional[helpers.ProcessedRecord]:
-    recordtype_id = record.recordType
+    self._uploaded_hashes = set(doc['hash'] for doc in hashes_cursor)
 
-    if recordtype_id == protos.Record.HEADER:
-      # There should never be any VALIDATED header records
+  def _preprocess_record(self, record: protos.Record
+      ) -> t.Optional[helpers.Record]:
+    record_h = super()._preprocess_record(record)
+    if not record_h:
       return None
 
-    ss_base_name = f'UPLOAD.{recordtype_id}'
-    ss = self.file.stats.steps[ss_base_name]
-    ss.input += 1
+    step_stat = self._get_step_stat(record)
 
-    # TODO: Logs should probably be added in all of these cases
-    if record.status != protos.Record.VALIDATED:
-      # This should never happen.
-      # Record needs to be validated, and we don't want to re-upload records
-      ss.failure += 1
+    if not record_h.record_type.upload:
+      # No upload function. Skip this record
+      # If scenario becomes common then we could compile the recordTypes with
+      # upload functions and filter for those in mongo
+      step_stat.failure += 1
       return None
 
     if record.uploadConfirmationId:
-      # This should not happen
-      ss.failure += 1
-      return None
+      # This should not happen, but since we the parent method already filtered
+      # on status then something might be wrong internally
+      step_stat.failure += 1
+      raise ValueError('uploadConfirmationId is not empty')
 
-    if recordtype_id not in self.recordtypes_map:
-      # This is an unexpected failure.
-      ss.failure += 1
-      return None
+    if record.hash in self._uploaded_hashes:
+      # A record with the same hash already exists
+      step_stat.failure += 1
+      raise exceptions.ValidationError('Record data already uploaded')
 
-    recordtype = self.recordtypes_map[recordtype_id]
-
-    if not recordtype.upload:
-      # No upload function. Skip this record
-      # If scenario becomes common then we could compile the recordTypes with
-      # upload functions and only return those for the processing
-      return None
-
-    fields = t.cast(dict[str, str], record.validatedFields)
-
-    # Is this the beginning of a new batch?
+     # Is this Record the beginning of a new batch?
     if self._groupby_field:
+      record_value = record_h[self._groupby_field]
+
       if (self._current_groupby_value
-          and self._current_groupby_value != fields[self._groupby_field]):
-        self._should_upload_batch = True
+          and self._current_groupby_value != record_value):
+        self._should_process_records = True
 
-      self._current_groupby_value = fields[self._groupby_field]
+      self._current_groupby_value = record_value
 
-    return helpers.ProcessedRecord(record.id, recordtype, fields)
+    return record_h
 
-  def _process_records(self, records: t.Generator[protos.Record, None, None],
-                       file_update_fields: t.Optional[list[str]] = None):
-    """ batch """
-    pending_uploads: list[helpers.ProcessedRecord] = []
-    pending_updates: list[t.Union[pymongo.UpdateOne, pymongo.UpdateMany]] = []
+  def _process_record(self, records: list[helpers.Record]
+      ) -> t.Optional[pymongo.UpdateMany]:
+    step_stat = self._get_step_stat(records[0].updated_record)
 
-    record_type: t.Optional[protos.RecordType] = None
+    # A batch should never have more than one unique RecordType
+    record_type = records[0].record_type
+    # Get the upload function for this RecordType
+    upload_func = self._functions[record_type.upload.functionId]
 
-    last_file_update = time.time()
-
-    try:
-      for record in records:
-        processed = self._process_upload(record)
-        if not processed:
-          continue
-
-        # If we're in a batch then this needs to be the same as all previous
-        # RecordTypes. For now we assume it is because we don't allow batch
-        # operations with > 1 recordType
-        record_type = self.recordtypes_map[record.recordType]
-
-        if (self._should_upload_batch
-            or len(pending_uploads) >= self._max_pending_uploads):
-          # upload. add result to pending_updates
-          print('uploading', len(pending_uploads), 'records')
-          update = self._upload_records(record_type, pending_uploads)
-          if update:
-            pending_updates.append(update)
-
-          pending_uploads.clear()
-          self._should_upload_batch = False
-
-        if (len(pending_updates) >= self._max_pending_updates
-            or time.time() > last_file_update + 30):
-          # when to use LOGGER ?
-          print('updating', len(pending_updates), 'documents')
-          self.db.records.bulk_write(pending_updates, ordered=False)
-          pending_updates.clear()
-
-          # Always update the file when updating records
-          self._update_file(['status', 'log', 'times', 'stats'])
-          last_file_update = time.time()
-
-        # Add the ProcessedRecords to the pending list. We do this down here
-        # because this record might start a new batch, and can't be part of
-        # the previous batch
-        pending_uploads.append(processed)
-
-      if pending_uploads:
-        print('uploading', len(pending_uploads), 'records')
-        update = self._upload_records(record_type, pending_uploads)
-        pending_updates.append(update)
-
-    except Exception as exc:
-      # LOGGER raising exception
-      #  provide info on most recent record
-      #  maybe write the error to the record, or the file?
-      print('unhandled excpetion')
-      raise exc
-
-    finally:
-      # Bulk write of any remaining updates, whether remaining from a successful
-      # loop or whatever was queued up when an unhandled exception occurred
-      if pending_updates:
-        print('updating', len(pending_updates), 'documents')
-        self.db.records.bulk_write(pending_updates, ordered=False)
-        self._update_file(['status', 'log', 'times', 'stats'])
-
-
-  def _upload_records(self, recordtype: protos.RecordType,
-        records: list[helpers.ProcessedRecord]
-        ) -> t.Union[pymongo.UpdateOne, pymongo.UpdateMany]:
-    # Get the upload function configured for this RecordType
-    upload_func = self.functions[recordtype.upload.functionId]
-
-    value: t.Union[list[helpers.ProcessedRecord], helpers.ProcessedRecord] = \
-        records
+    # Uploading is unique because the function might take multiple Records or
+    # a single Record.
 
     # We could have a) batch records + batch function, b) single record + single
     # function, or c) single record + batch function. (A) and (C) expect lists
-    # while (B) expected a single ProcessedRecord
+    # while (B) expects a single helpers.Record
+    # Value could be a list or a single Record
+    value: t.Union[list[helpers.Record], helpers.Record] = records
+
     if upload_func.type == protos.Function.RECORD_UPLOAD:
       # Assert that this is not (d) -- batch record + single function
-      if self._is_batch:
-        raise ValueError('Fucntion xxx doesnt support batch mode')
+      if self._is_batch_mode:
+        raise exceptions.ConfigurationError(
+            f"Function {upload_func.name} doesn't support batch mode")
 
       if len(records) > 1:
         # Invariant
-        raise ValueError(f'Not in batch mode but got {len(records)} records')
+        raise exceptions.ConfigurationError(
+            f'Not in batch mode but got {len(records)} records')
 
       # Set the value to the first (and only) record
       value = records[0]
 
     # If this is a batch update then we need a single representative record
     # from which to set the fields and create the changes. If this is a
-    # non-batch update then we could use the actual Record, but this function
-    # only gets ProcessedRecords. Regardless, we can still apply changes from
-    # one (representative) Record onto the actual Record
+    # non-batch update then we could use the actual Record message though we
+    # can still apply changes from one (representative) protos.Record onto the
+    # actual database Record
     a_record = protos.Record()
-
-    ss = self.file.stats.steps[f'UPLOAD.{recordtype.id}']
 
     try:
       # Let the configured function type determine what the handler does
-      response = handler.call_function(upload_func.type, recordtype.upload,
+      response = handler.call_function(upload_func.type, record_type.upload,
           upload_func, value)
 
       # Success
@@ -343,8 +280,8 @@ class BatchRecordUploader(record_processor.DbRecordProcessor):
       a_record.retryCount = 0
 
       self.file.stats.uploadedRecordsSuccess += len(records)
-      ss.success += len(records)
-    except (helpers.ValidationError, helpers.ExecutionError) as exc:
+      step_stat.success += len(records)
+    except (exceptions.ValidationError, exceptions.ExecutionError) as exc:
       # ValidationError should not occur. ExecutionError is more likely.
       # Either way, the error applies to all the records if in batch mode
       upload_error = self._make_log_entry(True, str(exc),
@@ -360,9 +297,9 @@ class BatchRecordUploader(record_processor.DbRecordProcessor):
       a_record.autoRetry = getattr(exc, 'auto_retry', False)
 
       self.file.stats.uploadedRecordsError += len(records)
-      ss.failure += len(records)
+      step_stat.failure += len(records)
 
-      self._retriable_records += len(records) if a_record.autoRetry else 0
+      self._retriable_record_cnt += len(records) if a_record.autoRetry else 0
 
     # Create an update_map which $sets most values but appends $log entries
     # This is necessary since we're working on a representative record
@@ -370,11 +307,9 @@ class BatchRecordUploader(record_processor.DbRecordProcessor):
         ['status', 'uploadConfirmationId', 'autoRetry', 'recentErrors'],
         ['log'])
 
-    # The number of records in the "batch" determines the type of Update we
-    # return, regardless of batch mode or function type. This is a probable
-    # over-optimization so that we don't send UpdateManys with single updates
-    if len(records) == 1:
-      return pymongo.UpdateOne({'_id': records[0].id}, update_map)
+    return pymongo.UpdateMany(
+        {'_id': {'$in': [record.id for record in records]}}, update_map)
 
-    record_ids = [record.id for record in records]
-    return pymongo.UpdateMany({'_id': {'$in': record_ids}}, update_map)
+  def _close_processing(self) -> None:
+    self.file.times.uploadingEndTime = bson_format.now()
+    self._update_file(['status', 'log', 'recentErrors', 'times', 'stats'])

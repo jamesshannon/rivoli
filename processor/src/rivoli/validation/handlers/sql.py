@@ -2,7 +2,7 @@
 import sqlite3
 
 from rivoli import protos
-from rivoli.validation import helpers
+from rivoli.function_helpers import helpers
 
 # Module-level db connection. Short of re-creating the database on every
 # validation, there's no per-execution concept of state. We'd have to

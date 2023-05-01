@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { Breadcrumb, BreadcrumbItem, Button } from 'carbon-components-svelte';
+  import {
+    Breadcrumb,
+    BreadcrumbItem,
+    Button,
+    Modal
+  } from 'carbon-components-svelte';
 
   import Add from 'carbon-icons-svelte/lib/Add.svelte';
 
@@ -13,6 +18,8 @@
   export let data: PageData;
   const partnerMap = data.partnerMap;
   const filetypeMap = data.filetypeMap;
+
+  let modalOpen = false;
 
   function renderFileName(data, type: String, row) {
     if (type === 'display') {
@@ -133,3 +140,19 @@
 </Breadcrumb>
 
 <SvelteDataTable bind:this={myDataTable} {config} />
+
+<Button
+  kind="tertiary"
+  size="small"
+  on:click={() => (modalOpen = true)}
+  icon={Add}>Add</Button
+>
+
+<Modal
+  bind:open={modalOpen}
+  modalHeading="Upload File"
+  shouldSubmitOnEnter={false}
+  primaryButtonText="Upload"
+>
+  Upload a file...
+</Modal>

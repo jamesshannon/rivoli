@@ -6,6 +6,8 @@ message Partner {
   bool active = 2;
   string name = 3;
 
+  string outgoingDirectory = 6;
+
   map<string, string> staticTags = 4;
 
   repeated FileType fileTypes = 5;
@@ -30,7 +32,7 @@ message FileType {
   string delimitedSeparator = 16;
 
   // how to model this? basically just a link
-  RequireReview requireReview = 9;
+  RequireReview requireUploadReview = 9;
 
   uint32 uploadBatchSize = 15;
   string uploadBatchGroupKey = 17;
@@ -53,8 +55,8 @@ message FileType {
 
   enum RequireReview {
     REQUIRE_UNKNOWN = 0;
-    INGESTION_ON_ERRORS = 1;
-    INGESTION_ALWAYS = 2;
+    ON_ERRORS = 1;
+    ALWAYS = 2;
   }
 
   message DelimitedFileFormat {
