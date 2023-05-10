@@ -57,6 +57,9 @@ class Validator(record_processor.DbChunkProcessor):
     self.errors: list[protos.ProcessingLog] = []
     """ Accumulation of a Record's errors. """
 
+    self._field_name_ids: dict[str, str] = {}
+    """ Map of field names to field IDs. """
+
     # Dict in the form of dct[RecordTypeId, dct[FieldTypeId, functionconfigs]
     self.field_validations: dict[int, dict[str, list[protos.FunctionConfig]]] = \
         collections.defaultdict(lambda: collections.defaultdict(list))
@@ -72,6 +75,8 @@ class Validator(record_processor.DbChunkProcessor):
       function_ids.update([val.functionId for val in recordtype.validations])
 
       for fieldtype in recordtype.fieldTypes:
+        self._field_name_ids[fieldtype.name] = fieldtype.id
+
         for validation in fieldtype.validations:
           self.field_validations[recordtype.id][fieldtype.name].append(
               validation)
@@ -85,7 +90,7 @@ class Validator(record_processor.DbChunkProcessor):
         protos.File.PARSED)
     self.file.times.validatingStartTime = bson_format.now()
 
-    self._process_records(self._get_all_records())
+    self._process_records(self._get_all_records(protos.Record.PARSED))
     # Need to decide how to move onto the next step. What is the status if >0
     # Records failed validation? Probably still VALIDATED?
     # Then do we go onto processing or place it on PROCESSING_HOLD?

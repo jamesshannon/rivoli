@@ -20,7 +20,7 @@ class RecordProcessor(abc.ABC):
   """ Abstract class to handle processing records in files or database. """
   log_source: protos.ProcessingLog.LogSource
 
-  _success_status: protos.File.Status
+  _success_status: t.Optional['protos.File.Status']
   _error_status: protos.File.Status
 
   _record_error_status: protos.Record.Status
@@ -48,7 +48,8 @@ class RecordProcessor(abc.ABC):
     try:
       self._process()
 
-      self.file.status = self._success_status
+      if self._success_status:
+        self.file.status = self._success_status
 
     except Exception as exc: # pylint: disable=broad-exception-caught
       error_code = getattr(exc, 'error_code',
@@ -175,10 +176,10 @@ class RecordProcessor(abc.ABC):
     # ... in order to get the "relevant" prefixes (ie, this one and later ones)
     step_prefixes = all_step_prefixes[step_idx:]
 
-    if step == 'LOAD' and not self.file.stats.approximateRows:
-      # If the file has been loaded then approximate_rows has been cleared out
-      # Reset it to total_rows for a better UX
-      self.file.stats.approximateRows = self.file.stats.totalRows
+    # if step == 'LOAD':
+    #   # If the file has been loaded then approximate_rows has been cleared out
+    #   # Reset it to total_rows for a better UX
+    #   self.file.stats.approximateRows = self.file.stats.totalRows
 
     key: str
     for key in step_prefixes:

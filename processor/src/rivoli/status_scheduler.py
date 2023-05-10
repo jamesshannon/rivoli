@@ -55,7 +55,7 @@ def next_step(file: protos.File, file_type: protos.FileType) -> None:
     _next_step_reporting(file, file_type)
 
   else:
-    logger.error('File (ID %s) status (%s) does not have a next step',
+    logger.warn('File (ID %s) status (%s) does not have a next step',
         file.id, file.status)
 
 def _log_next_step(file: protos.File, step: str) -> None:
