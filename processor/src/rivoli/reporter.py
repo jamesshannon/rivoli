@@ -28,7 +28,6 @@ These can return one or more values depending on what's being generated. E.g.,
 @tasks.app.task
 def create_and_schedule_report_by_id(file_id: int, report_id: str) -> None:
   """ (ID-based) Create report entry on file and schedule report execution. """
-  print(file_id, report_id)
   file, _, filetype = admin_entities.get_file_entities(file_id)
   output = [o for o in filetype.outputs if o.id == report_id][0]
 
@@ -57,40 +56,25 @@ def report(file_id: int, instance_id: str) -> None:
   inst = [inst for inst in file.outputs if inst.id == instance_id][0]
   output = [o for o in filetype.outputs if o.id == inst.outputId][0]
 
-  # get report
-  config = {
-    'name': 'Exception Report',
-    'type': 'CSV',
-    'header': True,
-    'record_status_all': True,
-    'record_status_gte': protos.Record.VALIDATION_ERROR,
-    'record_statuses': [protos.Record.VALIDATION_ERROR, protos.Record.UPLOAD_ERROR],
-    'record_type': 1000,
-
-    'duplicate_input_fields': True,
-    'fields': [''], # need to differentiate between different steps
-    'include_recent_errors': True,
-  }
-
-  file_report_config = {
-    'config': config,
-    'file_path_pattern': '/reports/zip/d2c/{ORIG_FILE_STEM}-{NOW_TS}-EXCEPTIONS.CSV',
-  }
-
-  # Capture exceptions. Update the output status. Then call status_scheduler
-  # which will figure out what to do next with the file.
   reporter = CsvReporter(file, partner, filetype, output)
   reporter.process()
 
+  # Update the instance message values, which are a reference to File.outputs,
+  # so these get updates when outputs is updated
   inst.endTime = bson_format.now()
   inst.outputFilename = str(reporter.report_path)
   inst.status = protos.OutputInstance.SUCCESS
 
-
-  db.get_db().files.update_one(*bson_format.get_update_args(file, ['outputs']))
+  # Need to append new logs
+  # Can't update status because there might be others, so let
+  # status_scheduler figure that out.
+  # TODO: We shouldn't be updating outputs because that might overwrite changes
+  # to another output. We can instead overwrite a single output based on ID with
+  # https://stackoverflow.com/a/26199283/21529160
+  db.get_db().files.update_one(*bson_format.get_update_args(file, ['outputs'],
+      list_append_fields=['log', 'recentErrors']))
 
   status_scheduler.next_step(file, filetype)
-
 
 def _fval_recent_errors(record: protos.Record) -> list[str]:
   """ Return text of recent errors. """
@@ -114,6 +98,14 @@ class Reporter(record_processor.DbChunkProcessor):
   def __init__(self, file: protos.File, partner: protos.Partner,
       filetype: protos.FileType, output: protos.Output) -> None:
     super().__init__(file, partner, filetype)
+
+    # Clear out the file log entries. We can't update the `log` sub-record
+    # because that will overwrite it and other reports might be running. So
+    # we'll need to append to the array, but we won't know which log entries are
+    # new or existing. (Alternatively, we could keep a separate "logs" variable,
+    # but that wouldn't work as well with existing code which automatically
+    # creates log entries.)
+    del file.log[:]
 
     self._report_config = output
 
@@ -187,9 +179,9 @@ class Reporter(record_processor.DbChunkProcessor):
 
     # build the filter
     filter_ = {}
-    if False and self.report_config['config']['record_status_all']:
+    if False and self._report_config['config']['record_status_all']:
       pass
-    elif False and self.report_config['config']['record_status_gte']:
+    elif False and self._report_config['config']['record_status_gte']:
       pass
     elif self._report_config.configuration.recordStatuses:
       # Must be a simple list to be encoded into BSON
@@ -199,13 +191,8 @@ class Reporter(record_processor.DbChunkProcessor):
     self._process_records(self._get_some_records(filter_))
 
     # Done. Add a log entry.
-
     msg = f'Generated "{self._report_config.name}" and saved to CSV'
     self.file.log.append(self._make_log_entry(False, msg))
-    # Can't update status because there might be others, so let
-    # status_scheduler figure that out.
-    self._update_file(['log'])
-
 
   def _process_record(self, records: list[helpers.Record]) -> None:
     """ Write a single record to the report. """

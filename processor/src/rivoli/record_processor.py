@@ -20,8 +20,8 @@ class RecordProcessor(abc.ABC):
   """ Abstract class to handle processing records in files or database. """
   log_source: protos.ProcessingLog.LogSource
 
-  _success_status: t.Optional['protos.File.Status']
-  _error_status: protos.File.Status
+  _success_status: t.Optional['protos.File.Status'] = None
+  _error_status: t.Optional['protos.File.Status'] = None
 
   _record_error_status: protos.Record.Status
   """ Status for Records which caused an exception. """
@@ -60,9 +60,11 @@ class RecordProcessor(abc.ABC):
       self.file.log.append(log)
       self.file.recentErrors.append(log)
 
-      # TODO: Need to figure out when (not) to update status. E.g., if the
-      # status is invalid and so we're skipping this step.
-      self.file.status = self._error_status
+      logger.info('Updating File ID %s status to %s because of exception %s',
+          self.file.id, self._error_status, str(exc))
+
+      if self._error_status:
+        self.file.status = self._error_status
 
     finally:
       self._close_processing()
@@ -119,13 +121,15 @@ class RecordProcessor(abc.ABC):
     self.file.MergeFrom(new_file)
 
   def _update_file(self, update_fields: list[str],
-        status: t.Optional['protos.File.Status'] = None) -> None:
+        status: t.Optional['protos.File.Status'] = None,
+        list_append_fields: t.Optional[list[str]] = None) -> None:
     """ Update the File record in the database. """
     if status:
       self.file.status = status
 
     self.db.files.update_one(
-      *bson_format.get_update_args(self.file, update_fields))
+      *bson_format.get_update_args(self.file, update_fields,
+                                   list_append_fields=list_append_fields))
 
   def _all_records_filter(self,
       status: t.Optional['protos.Record.Status'] = None,
