@@ -1,6 +1,7 @@
 """ API function helpers. """
 import os
 import typing as t
+import urllib.parse as urlparse
 
 import requests
 import requests.exceptions
@@ -37,6 +38,14 @@ def make_request(method: str, url: str, **kwargs: t.Any) -> t.Any:
     # Various requests exceptions get re-written to Rivoli exceptions with
     # appropriate handling of status codes and determination of auto-retry
     error_code: t.Union[protos.ProcessingLog.ErrorCode, int]
+
+    # By default we raise an ExecutionError, which is a record-level error. In
+    # some cases we want to raise a more serious (file-level) error.
+    if '[Errno 8] nodename nor servname provided' in str(exc):
+      # This is basically a DNS error. It's actually a reraise of a lower-level
+      # exception (socket.gaiaerror?) but we'll just parse the string
+      raise exceptions.ConfigurationError(
+          f'Cannot find host for {urlparse.urlparse(url).netloc}') from exc
 
     if isinstance(exc, requests.exceptions.HTTPError):
       error_code = exc.response.status_code

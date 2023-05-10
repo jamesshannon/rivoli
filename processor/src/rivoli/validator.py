@@ -127,7 +127,7 @@ class Validator(record_processor.DbChunkProcessor):
           # File level exceptions are any exception that's not a Record-level
           # exception, and requires us to re-raise later.
           if not isinstance(exc,
-              (exceptions.ValidationError, exceptions.ConfigurationError)):
+              (exceptions.ValidationError, exceptions.ExecutionError)):
             file_exception = exc
 
           break
@@ -152,13 +152,10 @@ class Validator(record_processor.DbChunkProcessor):
           # File level exceptions are any exception that's not a Record-level
           # exception, and requires us to re-raise later.
           if not isinstance(exc,
-              (exceptions.ValidationError, exceptions.ConfigurationError)):
+              (exceptions.ValidationError, exceptions.ExecutionError)):
             file_exception = exc
 
           break
-
-        # NEED TO HANDLE FILE_EXCEPTION AND TO FIGURE OUT HOW TO OVERWRITE THE RECORD, AND ALSO VALIDATED_FIELDS
-        # OVERWRITE RECORD HERE, AND THEN SET VALIDATED FIELDS LATER?
 
         # result_dct should be complete -- if the record-validation function
         # removes a field then we don't want to keep it
