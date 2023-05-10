@@ -44,6 +44,8 @@ class Loader(record_processor.RecordProcessor):
   _success_status = protos.File.LOADED
   _error_status = protos.File.LOAD_ERROR
 
+  _step_stat_prefix = 'LOAD'
+
   local_file: pathlib.Path
   fileobj: t.Optional[io.TextIOWrapper] = None
 
@@ -176,20 +178,22 @@ class DelimitedLoader(Loader):
       records: list[dict[str, t.Any]] = []
 
       for line in lines:
-        recordtype_id = None
+        recordtype: t.Optional[protos.RecordType] = None
 
         if len(self.filetype.recordTypes) == 1:
-          recordtype_id = self.filetype.recordTypes[0].id
+          recordtype = self.filetype.recordTypes[0]
         else:
           # Find the matching RecordType based on each RecordType's patterns
           # Re-create the line's values as a single string
-          recordtype_id = self._get_regexp_matching_record(
+          recordtype = self._get_regexp_matching_record(
               self._delimiter.join(line), self.filetype.recordTypes,
               'recordMatches')
 
-        if recordtype_id:
+        if recordtype:
           records.append(self._create_new_record(
-            self._line_num, line, recordtype_id))
+            self._line_num, line, recordtype.id))
+          self._get_step_stat(recordtype.id).input += 1
+          self._get_step_stat(recordtype.id).success += 1
           self.file.stats.loadedRecordsSuccess += 1
         else:
           # No RecordType found. Create an error record.
@@ -204,10 +208,10 @@ class DelimitedLoader(Loader):
       self._update_file(['stats'])
 
     # Final stats update, now that we finished the loading
-    self.file.stats.approximateRows = 0
     self.file.stats.totalRows = self._line_num - 1
 
-    stepstats = self.file.stats.steps['LOAD']
+    stepstats = self._get_step_stat()
+
     stepstats.input = self._line_num - 1
     stepstats.success = self.file.stats.loadedRecordsSuccess
     stepstats.failure = self.file.stats.loadedRecordsError

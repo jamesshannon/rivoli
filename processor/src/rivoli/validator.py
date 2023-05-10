@@ -106,22 +106,31 @@ class Validator(record_processor.DbChunkProcessor):
     self.errors.clear()
     file_exception: t.Optional[Exception] = None
 
-    step_stat = self._get_step_stat(raw_record)
+    step_stat = self._get_step_stat(raw_record.recordType)
     step_stat.input += 1
 
     record_type_id = raw_record.recordType
 
     # Loop through each field and apply validations & modifications
     for field_name, value in record.items():
-      ss_field = self._get_step_stat(raw_record, field_name)
+      field_id = self._field_name_ids[field_name]
+      ss_field = self._get_step_stat(raw_record.recordType, field_id)
       ss_field.input += 1
 
       for cfg in self.field_validations[record_type_id][field_name]:
+        ss_field_func = self._get_step_stat(
+            raw_record.recordType, field_id, cfg.id)
+        ss_field_func.input += 1
+
         try:
           value = t.cast(str, self._call_function(
               protos.Function.FIELD_VALIDATION, cfg, value, field_name))
+          ss_field.success += 1
+          ss_field_func.success += 1
         except Exception as exc: # pylint: disable=broad-exception-caught
           ss_field.failure += 1
+          ss_field_func.failure += 1
+
           # No additional validations for this field
 
           # File level exceptions are any exception that's not a Record-level
@@ -144,11 +153,17 @@ class Validator(record_processor.DbChunkProcessor):
 
     if not self.errors:
       for cfg in self.recordtypes_map[record_type_id].validations:
+        ss_record_func = self._get_step_stat(raw_record.recordType, cfg.id)
+        ss_record_func.input += 1
+
         try:
           validated_fields = t.cast(dict[str, str],
               self._call_function(protos.Function.RECORD_VALIDATION, cfg,
               record))
+          ss_record_func.success += 1
         except Exception as exc: # pylint: disable=broad-exception-caught
+          ss_record_func.failure += 1
+
           # File level exceptions are any exception that's not a Record-level
           # exception, and requires us to re-raise later.
           if not isinstance(exc,

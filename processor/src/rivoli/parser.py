@@ -121,7 +121,7 @@ class DelimitedParser(Parser):
     # self.recordtypes_map. We need it in the self.fieldnames, but we assume
     # they're equivalent
 
-    step_stat = self._get_step_stat(record)
+    step_stat = self._get_step_stat(record.recordType)
 
     fieldnames = self.fieldnames[record.recordType]
     shared_keys = self.shared_keys[record.recordType]

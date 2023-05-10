@@ -195,6 +195,22 @@ class RecordProcessor(abc.ABC):
       if any(key.startswith(step_prefix) for step_prefix in step_prefixes):
         del self.file.stats.steps[key]
 
+  def _get_step_stat(self, *args: t.Any) -> protos.StepStats:
+    """ Get the StepStat for this particular step.
+    *args is any additional arbitrary string(s) that are added at end and
+    separated by .'s. The StepStat comes from the File instance and so any
+    changes made will be saved to the db when an Update instance is created.
+    If _step_stat_prefix is empty (the default) then we return a "disconnected"
+    instance of a StepStat. This makes it easier for shared RecordProcessor
+    code not use StepStats without a lot of logic.
+
+    """
+    if not self._step_stat_prefix:
+      return protos.StepStats()
+
+    key = '.'.join([self._step_stat_prefix] + [str(x) for x in args])
+    return self.file.stats.steps[key]
+
   def _get_regexp_matching_record(self, text: str,
         records: t.Sequence[protos.RecordType],
         matches_field: str) -> t.Optional[protos.RecordType]:
@@ -442,7 +458,7 @@ class DbChunkProcessor(RecordProcessor):
     # Clear any recent errors for this record
     del record.recentErrors[:]
 
-    step_stat = self._get_step_stat(record)
+    step_stat = self._get_step_stat(record.recordType)
     step_stat.input += 1
 
     if recordtype_id == protos.Record.HEADER:
@@ -484,23 +500,6 @@ class DbChunkProcessor(RecordProcessor):
     be part of the DB update. If there are fatal errors then the exception
     should be raised withh the UpdateOne/UpdateMany as part of the exception.
     """
-
-  def _get_step_stat(self, record: protos.Record, *args: str
-      ) -> protos.StepStats:
-    """ Get the StepStat for this particular step.
-    *args is any additional arbitrary string(s) that are added at end and
-    separated by .'s. The StepStat comes from the File instance and so any
-    changes made will be saved to the db when an Update instance is created.
-    If _step_stat_prefix is empty (the default) then we return a "disconnected"
-    instance of a StepStat. This makes it easier for shared RecordProcessor
-    code not use StepStats wihtout a lot of logic.
-
-    """
-    if not self._step_stat_prefix:
-      return protos.StepStats()
-
-    key = '.'.join((self._step_stat_prefix, str(record.RecordTypeRef)) + args)
-    return self.file.stats.steps[key]
 
   def _make_update(self, record: protos.Record, update_fields: list[str]
       ) -> pymongo.UpdateOne:
