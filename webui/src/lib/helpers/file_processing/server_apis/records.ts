@@ -19,7 +19,7 @@ const revertStatusMap = new Map([
   [Record_Status.VALIDATED, File_Status.VALIDATED]
 ]);
 
-function makeBaseFilter(fileId: string): [any, any] {
+function makeBaseFilter(fileId: string | number): [any, any] {
   // Record ID portion is 1-based to correspond with file row numbers
   const baseRecordId = (BigInt(fileId) << 32n) + 1n;
   const maxRecordId = baseRecordId + ((1n << 32n) - 1n);
@@ -29,7 +29,7 @@ function makeBaseFilter(fileId: string): [any, any] {
   return [filter, options];
 }
 
-function makeSearchFilter(fileId: string, params: any): [any, any] {
+function makeSearchFilter(fileId: string | number, params: any): [any, any] {
   const [filter, options] = makeBaseFilter(fileId);
   const startOffset = parseInt(params.start || '0');
 
@@ -78,61 +78,59 @@ export async function getRequestRecords(
   return json({ records: await recordsP, statusCounts: statusCounts });
 }
 
-export async function hanldePostRequestRevertRecords(
-  fileId: string,
+export async function handlePostRequestRevertRecords(
+  fileId: number,
   reqBody: any
-) {
-  if (reqBody.action == 'REVERT') {
-    // this handles downgrading status to re-run uploads
-    const toRecordStatus = parseInt(reqBody.toStatus);
-    const toRecordStatusName = Record_Status[toRecordStatus];
+): Promise<{ [key: string]: string }> {
+  // this handles downgrading status to re-run uploads
+  const toRecordStatus = parseInt(reqBody.toStatus);
+  const toRecordStatusName = Record_Status[toRecordStatus];
 
-    const [filter, _] = makeSearchFilter(fileId, reqBody);
+  const [filter, _] = makeSearchFilter(fileId, reqBody);
 
-    if (!filter.status || !REVERTABLE_MAP.get(filter.status)) {
-      // better error handling
-      return json({ status: 'error1' });
-    } else if (filter.status <= toRecordStatus) {
-      return json({ status: 'error2' });
-    }
-
-    const toFileStatus = revertStatusMap.get(toRecordStatus);
-    const log = makeLogMsg(`Reverted status to ${toRecordStatusName}`);
-
-    // update the records
-    const update = {
-      // Set the status to VALIDATED -- currently the only "to" status supported
-      $set: { status: toRecordStatus },
-      // Remove the log of recentErrors
-      $unset: { recentErrors: {}, autoRetry: {} },
-      // Add a log entry describing this reverting
-      $addToSet: {
-        log: log.toJson({ enumAsInteger: true }) as any
-      },
-      // Increment the retry count
-      $inc: { retryCount: 1 }
-    };
-
-    const resp = await db.collection('records').updateMany(filter, update);
-
-    // Update the file
-    const modified = resp.modifiedCount;
-    log.message = `Reverted record status to ${toRecordStatusName} on ${modified} records`;
-    db.collection('files').updateOne(
-      { _id: parseInt(fileId) },
-      {
-        $set: { status: toFileStatus },
-        $addToSet: { log: log.toJson({ enumAsInteger: true }) }
-        // TODO: Update stats... and ss stats... :(
-        // $inc: { 'stats.uploadedRecordsError': -1 * modified }
-      }
-    );
-
-    // Now that the file status is updated, schedule the next step
-    // Python code has the logic to schedule the next step so we use that
-    // rather than try to recreate
-    createTask('rivoli.status_scheduler', 'next_step_id', parseInt(fileId));
+  if (!filter.status || !REVERTABLE_MAP.get(filter.status)) {
+    // better error handling
+    return { status: 'error1' };
+  } else if (filter.status <= toRecordStatus) {
+    return { status: 'error2' };
   }
 
-  return json({ status: 'success' });
+  const toFileStatus = revertStatusMap.get(toRecordStatus);
+  const log = makeLogMsg(`Reverted status to ${toRecordStatusName}`);
+
+  // update the records
+  const update = {
+    // Set the status to VALIDATED -- currently the only "to" status supported
+    $set: { status: toRecordStatus },
+    // Remove the log of recentErrors
+    $unset: { recentErrors: {}, autoRetry: {} },
+    // Add a log entry describing this reverting
+    $addToSet: {
+      log: log.toJson({ enumAsInteger: true }) as any
+    },
+    // Increment the retry count
+    $inc: { retryCount: 1 }
+  };
+
+  const resp = await db.collection('records').updateMany(filter, update);
+
+  // Update the file
+  const modified = resp.modifiedCount;
+  log.message = `Reverted record status to ${toRecordStatusName} on ${modified} records`;
+  db.collection('files').updateOne(
+    { _id: fileId },
+    {
+      $set: { status: toFileStatus },
+      $addToSet: { log: log.toJson({ enumAsInteger: true }) }
+      // TODO: Update stats... and ss stats... :(
+      // $inc: { 'stats.uploadedRecordsError': -1 * modified }
+    }
+  );
+
+  // Now that the file status is updated, schedule the next step
+  // Python code has the logic to schedule the next step so we use that
+  // rather than try to recreate
+  createTask('rivoli.status_scheduler', 'next_step_id', fileId);
+
+  return { status: 'success' };
 }

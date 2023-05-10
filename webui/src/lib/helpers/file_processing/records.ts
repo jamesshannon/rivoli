@@ -20,6 +20,11 @@ export class RecordsFilter {
   status: string = '';
   errorCode: string = '';
 
+  // The number of returned records for this particular filter.
+  // This is "delayed" because it is set after the filter has been used to
+  // retrieve filtered records.
+  resultCount = 0;
+
   get filterObj(): { [key: string]: string } {
     return { status: this.status, errorCode: this.errorCode };
   }
