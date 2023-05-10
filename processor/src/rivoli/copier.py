@@ -20,6 +20,8 @@ from rivoli.utils import utils
 
 logger = logging.get_logger(__name__)
 
+FILES_BASE_DIR = pathlib.Path(config.get('FILES'))
+
 @tasks.app.task
 def setup_scan_tasks():
   """ Schedule a copy() task for each active partner. """
@@ -30,37 +32,69 @@ def setup_scan_tasks():
 @tasks.app.task
 def scan(partner_id: str):
   """ Search for new files for a partner and set them up for processing. """
-  base_dir = pathlib.Path(config.get('FILES'))
-  cfg = {'path': str(base_dir / 'input')}
-
-  dest_dir = base_dir / 'processed'
+  input_dir = FILES_BASE_DIR / 'input'
+  dest_dir = FILES_BASE_DIR / 'processed'
 
   partner = admin_entities.get_partner(partner_id)
 
   logger.info('Scanning for files for Partner ID %s', partner_id)
 
-  copier = LocalFileCopier(partner, cfg, dest_dir)
-  copier.copy()
+  copier = LocalFileCopier(partner, dest_dir)
+  copier.scan(input_dir)
+
+@tasks.app.task
+def copy_from_upload(orig_filename: str, temp_filename: str, partner_id: str,
+    filetype_id: str):
+  input_file = FILES_BASE_DIR / 'uploads' / temp_filename
+  dest_dir = FILES_BASE_DIR / 'processed'
+
+  partner = admin_entities.get_partner(partner_id)
+  filetype = admin_entities.get_filetype(filetype_id)
+
+  logger.info('Copying uploaded file for Partner ID %s', partner_id)
+
+  copier = LocalFileCopier(partner, dest_dir)
+  copier.create_file(input_file, filetype, orig_filename)
 
 class Copier(abc.ABC):
   """ Class to look for files and prep them for loading. """
-  def __init__(self, partner: protos.Partner, cfg: dict[str, str],
-               dest_dir: pathlib.Path):
-    self.cfg = cfg
+  def __init__(self, partner: protos.Partner, dest_dir: pathlib.Path):
     self.dest_dir = dest_dir
     self.partner = partner
 
-  def create_file(self, partner: protos.Partner, orig_file: pathlib.Path,
+  def create_file(self, src_file: pathlib.Path, filetype: protos.FileType,
+        orig_filename: t.Optional[str] = None) -> protos.File:
+    """ Move file to processed directory, create record, schedule lodading. """
+    # Move the file to the destination but with a temporary file name
+    # The filename will be changed right after the record is created,
+    # and this approach makes orphans obvious
+    tmp_file = self.dest_dir / self._file_temp_name(src_file.name)
+    shutil.move(src_file, tmp_file)
+
+    # create_file_record() only uses the src_file for parsing values and
+    # setting the display File.name. Allow for overriding that. The full path +
+    # name is parsed, but the full path is probably the upload directory and
+    # irrelevant.
+    orig_file = pathlib.Path(orig_filename) if orig_filename else src_file
+
+    # Create the file record, which also renames the file
+    file_r = self.create_file_record(orig_file, tmp_file, filetype)
+
+    status_scheduler.next_step(file_r, filetype)
+
+    return file_r
+
+  def create_file_record(self, orig_file: pathlib.Path,
                   local_file: pathlib.Path, filetype: protos.FileType
                   ) -> protos.File:
-    """ Create a file record, rename local file, and schedule loading. """
+    """ Create a file record with metadata and rename local file. """
     # Get a seqential ID. We do this to keep the ID small for the Record rows
     mydb = db.get_db()
 
     file_id = db.get_next_id('files')
 
     # Copy the tags from the Partner and the FileType
-    tags: dict[str, str] = dict(list(partner.staticTags.items()) +
+    tags: dict[str, str] = dict(list(self.partner.staticTags.items()) +
                                 list(filetype.staticTags.items()))
 
     # Parse the filename for date and other tags, and override the
@@ -75,7 +109,7 @@ class Copier(abc.ABC):
 
     file = protos.File(
       id=file_id,
-      partnerId=partner.id,
+      partnerId=self.partner.id,
       sizeBytes=local_file.stat().st_size,
       hash=utils.get_file_hash(local_file),
       tags=tags,
@@ -94,7 +128,7 @@ class Copier(abc.ABC):
         time=bson_format.now(),
         message='File Created'))
 
-    # get # of lines from the file
+    # Get # of lines from the file
     line_count = sum(1 for _
         in open(local_file, 'r', encoding='UTF-8').readlines())
     file.stats.approximateRows = line_count
@@ -108,6 +142,7 @@ class Copier(abc.ABC):
 
   def _parse_date(self, orig_file: pathlib.Path,
       filetype: protos.FileType) -> t.Optional[str]:
+    """ Parse optional "file date" from the filename. """
     if not filetype.filenameDateRegexp:
       return None
 
@@ -144,21 +179,21 @@ class Copier(abc.ABC):
 
 class LocalFileCopier(Copier):
   """ Copier class that scans the local filesystem for files. """
-  def copy(self):
+  def scan(self, input_dir: pathlib.Path):
+    """ Scan source directory and import new, matching files. """
     # Create a log entry
     log = protos.CopyLog(partnerId=self.partner.id, time=bson_format.now())
 
-    # loop through every child in the root directory
-    for child in pathlib.Path(self.cfg['path']).iterdir():
+    # Loop through every child in the root directory
+    for child in input_dir.iterdir():
       # Currently only support files and not sub directories
       if child.is_file():
-        log.files.append(self.evaluate_file(child, self.dest_dir, self.partner))
+        log.files.append(self.evaluate_file(child))
 
     db.get_db().copylog.insert_one(bson_format.from_proto(log))
 
 
-  def evaluate_file(self, file: pathlib.Path,  dest_dir: pathlib.Path,
-      partner: protos.Partner) -> protos.CopyLog.EvaluatedFile:
+  def evaluate_file(self, file: pathlib.Path) -> protos.CopyLog.EvaluatedFile:
     """ Evaluate a file to determine if it should be copied. """
     filelog = protos.CopyLog.EvaluatedFile(
       name=file.name,
@@ -168,7 +203,7 @@ class LocalFileCopier(Copier):
     # Has this file already been copied? If so then ignore it.
     testdb = db.get_db()
     files_filter = bson_format.get_filter_map(
-        protos.File(partnerId=partner.id, name=file.name),
+        protos.File(partnerId=self.partner.id, name=file.name),
         ['partnerId', 'name'])
     resp = testdb.files.find_one(files_filter)
 
@@ -185,21 +220,13 @@ class LocalFileCopier(Copier):
 
     # A partner can have multiple filetypes, and we're looking for any that are
     # available
-    for filetype in partner.fileTypes:
+    for filetype in self.partner.fileTypes:
       # A filetype can have multiple match expressions
       for exp in filetype.fileMatches:
         if re.fullmatch(exp, file.name):
           filelog.fileTypeId = filetype.id
 
-          # Move the file to the destination but with a temporary file name
-          # The filename will be changed right after the record is created,
-          # and this approach makes oprhans obvious
-          tmp_file = dest_dir / self._file_temp_name(file.name)
-          shutil.move(file, tmp_file)
-          # Create the file record, which also renames the file
-          file_r = self.create_file(partner, file, tmp_file, filetype)
-
-          status_scheduler.next_step(file_r, filetype)
+          file_r = self.create_file(file, filetype)
 
           filelog.fileId = file_r.id
           filelog.resolution = protos.CopyLog.EvaluatedFile.COPIED
