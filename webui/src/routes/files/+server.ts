@@ -1,0 +1,43 @@
+import { promises as fsp } from 'fs';
+import * as path from 'path';
+
+import { env } from '$env/dynamic/private';
+
+import { db, getOne } from '$lib/server/db';
+
+import { createTask } from '$lib/helpers/celery';
+
+import { makeObjectId } from '$lib/helpers/utils';
+
+import { json } from '@sveltejs/kit';
+import { BSON } from 'bson';
+
+export async function POST({ request }) {
+  let formData = await request.formData();
+  let file = formData.get('file') as File;
+
+  let tempFileName = `${Math.floor(Date.now() / 1000)}-${makeObjectId()}`;
+  let tempFilePath = path.join(env.files_base, env.files_upload, tempFileName);
+
+  fsp.writeFile(tempFilePath, file.stream());
+
+  createTask(
+    'rivoli.copier',
+    'copy_from_upload',
+    file.name,
+    tempFileName,
+    formData.get('partnerId'),
+    formData.get('filetypeId')
+  );
+
+  console.log(
+    'rivoli.copier',
+    'copy_from_upload',
+    file.name,
+    tempFileName,
+    formData.get('partnerId'),
+    formData.get('filetypeId')
+  );
+
+  return json({ status: 'success' });
+}

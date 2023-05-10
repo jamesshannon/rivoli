@@ -20,7 +20,7 @@ class RecordProcessor(abc.ABC):
   """ Abstract class to handle processing records in files or database. """
   log_source: protos.ProcessingLog.LogSource
 
-  _success_status: protos.File.Status
+  _success_status: t.Optional['protos.File.Status']
   _error_status: protos.File.Status
 
   _record_error_status: protos.Record.Status
@@ -48,7 +48,8 @@ class RecordProcessor(abc.ABC):
     try:
       self._process()
 
-      self.file.status = self._success_status
+      if self._success_status:
+        self.file.status = self._success_status
 
     except Exception as exc: # pylint: disable=broad-exception-caught
       error_code = getattr(exc, 'error_code',
@@ -175,10 +176,10 @@ class RecordProcessor(abc.ABC):
     # ... in order to get the "relevant" prefixes (ie, this one and later ones)
     step_prefixes = all_step_prefixes[step_idx:]
 
-    if step == 'LOAD' and not self.file.stats.approximateRows:
-      # If the file has been loaded then approximate_rows has been cleared out
-      # Reset it to total_rows for a better UX
-      self.file.stats.approximateRows = self.file.stats.totalRows
+    # if step == 'LOAD':
+    #   # If the file has been loaded then approximate_rows has been cleared out
+    #   # Reset it to total_rows for a better UX
+    #   self.file.stats.approximateRows = self.file.stats.totalRows
 
     key: str
     for key in step_prefixes:
@@ -194,6 +195,22 @@ class RecordProcessor(abc.ABC):
     for key in list(self.file.stats.steps.keys()):
       if any(key.startswith(step_prefix) for step_prefix in step_prefixes):
         del self.file.stats.steps[key]
+
+  def _get_step_stat(self, *args: t.Any) -> protos.StepStats:
+    """ Get the StepStat for this particular step.
+    *args is any additional arbitrary string(s) that are added at end and
+    separated by .'s. The StepStat comes from the File instance and so any
+    changes made will be saved to the db when an Update instance is created.
+    If _step_stat_prefix is empty (the default) then we return a "disconnected"
+    instance of a StepStat. This makes it easier for shared RecordProcessor
+    code not use StepStats without a lot of logic.
+
+    """
+    if not self._step_stat_prefix:
+      return protos.StepStats()
+
+    key = '.'.join([self._step_stat_prefix] + [str(x) for x in args])
+    return self.file.stats.steps[key]
 
   def _get_regexp_matching_record(self, text: str,
         records: t.Sequence[protos.RecordType],
@@ -442,7 +459,7 @@ class DbChunkProcessor(RecordProcessor):
     # Clear any recent errors for this record
     del record.recentErrors[:]
 
-    step_stat = self._get_step_stat(record)
+    step_stat = self._get_step_stat(record.recordType)
     step_stat.input += 1
 
     if recordtype_id == protos.Record.HEADER:
@@ -484,23 +501,6 @@ class DbChunkProcessor(RecordProcessor):
     be part of the DB update. If there are fatal errors then the exception
     should be raised withh the UpdateOne/UpdateMany as part of the exception.
     """
-
-  def _get_step_stat(self, record: protos.Record, *args: str
-      ) -> protos.StepStats:
-    """ Get the StepStat for this particular step.
-    *args is any additional arbitrary string(s) that are added at end and
-    separated by .'s. The StepStat comes from the File instance and so any
-    changes made will be saved to the db when an Update instance is created.
-    If _step_stat_prefix is empty (the default) then we return a "disconnected"
-    instance of a StepStat. This makes it easier for shared RecordProcessor
-    code not use StepStats wihtout a lot of logic.
-
-    """
-    if not self._step_stat_prefix:
-      return protos.StepStats()
-
-    key = '.'.join((self._step_stat_prefix, str(record.RecordTypeRef)) + args)
-    return self.file.stats.steps[key]
 
   def _make_update(self, record: protos.Record, update_fields: list[str]
       ) -> pymongo.UpdateOne:

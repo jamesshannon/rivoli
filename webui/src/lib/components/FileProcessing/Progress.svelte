@@ -94,4 +94,17 @@
     font-weight: 500;
     margin-top: -2px;
   }
+
+  .progress_bar :global(li.bx--progress-step--current svg) {
+    animation: spin 5s linear infinite;
+  }
+
+  @keyframes spin {
+    70% {
+      transform: rotate(360deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
 </style>

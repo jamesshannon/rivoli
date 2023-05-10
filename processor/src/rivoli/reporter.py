@@ -105,9 +105,8 @@ def _fvals_original_columns(record: protos.Record) -> list[str]:
 
 class Reporter(record_processor.DbChunkProcessor):
   """ Base class to create processing reports. """
-  log_source = protos.ProcessingLog.UPLOADER # FIXME
+  log_source = protos.ProcessingLog.REPORTER
 
-  _success_status = protos.File.REPORTED
   _error_status = protos.File.REPORT_ERROR
 
   _only_process_record_status = False
@@ -196,8 +195,6 @@ class Reporter(record_processor.DbChunkProcessor):
       # Must be a simple list to be encoded into BSON
       filter_['status'] = {
           '$in': list(self._report_config.configuration.recordStatuses)}
-
-    print(filter_)
 
     self._process_records(self._get_some_records(filter_))
 

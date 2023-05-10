@@ -5,36 +5,48 @@
     Button,
     Breadcrumb,
     BreadcrumbItem,
-    Grid,
-    Row,
-    Column,
+    Tabs,
+    Tab,
+    TabContent,
     Tag
   } from 'carbon-components-svelte';
 
   import type { PageData } from './$types';
   import { invalidateAll } from '$app/navigation';
 
-  import ProcessingLogsTable from '$lib/components/ProcessingLogsTable.svelte';
-  import PrettyJson from '$lib/components/PrettyJson.svelte';
-
-  import { fmtNum } from '$lib/helpers/utils';
-  import { statuses } from '$lib/helpers/files';
   import { onMount } from 'svelte';
 
-  import { type Partner, FileType } from '$lib/rivoli/protos/config_pb';
+  import { FileType } from '$lib/rivoli/protos/config_pb';
+  import { Function } from '$lib/rivoli/protos/functions_pb';
   import { File_Status, File } from '$lib/rivoli/protos/processing_pb';
-  import Outputs from '$lib/components/FileProcessing/Outputs.svelte';
-  import Progress from '$lib/components/FileProcessing/Progress.svelte';
 
-  export let data: PageData;
-  let file: File;
-  const filetype = FileType.fromJson(data.fileType as any, {
-    ignoreUnknownFields: true
-  });
+  import Details from '$lib/components/FileProcessing/Details.svelte';
+  import Outputs from '$lib/components/FileProcessing/Outputs.svelte';
+  import RecordsTable from '$lib/components/FileProcessing/RecordsTable.svelte';
+  import StatusTag from '$lib/components/FileProcessing/StatusTag.svelte';
+  import ProcessingLogsTable from '$lib/components/ProcessingLogsTable.svelte';
+
+  import { statuses } from '$lib/helpers/files';
+  import Diagram from '$lib/components/FileProcessing/Diagram.svelte';
+
   function setFileFromData() {
     file = File.fromJson(data.file as any, { ignoreUnknownFields: true });
   }
+
+  export let data: PageData;
+  let file: File;
   setFileFromData();
+
+  const filetype = FileType.fromJson(data.fileType as any, {
+    ignoreUnknownFields: true
+  });
+
+  let functions = new Map(
+    data.functions.map((f) => [f.id, Function.fromJson(f as any)])
+  );
+
+  let recordsTableInstance: any;
+  let selectedTabIdx = 0;
 
   onMount(() => {
     refreshFile();
@@ -42,7 +54,7 @@
 
   function refreshFile(timeout_ms?: number) {
     const refresh_time =
-      timeout_ms || (statuses.get(file.status)?.working ? 15_000 : 60_000);
+      timeout_ms || (statuses.get(file.status)?.working ? 10_000 : 60_000);
 
     async function refreshFileData() {
       // invalidate($page.url) does not work, so we invalidate everything
@@ -55,18 +67,6 @@
       refreshFile();
     }, refresh_time);
   }
-
-  function bufferToHex(buffer) {
-    return [...new Uint8Array(buffer)]
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-  }
-
-  // Needs to be encapsulated
-  let statusString: string;
-  let statusIsWorking: boolean;
-  $: statusString = File_Status[file.status];
-  $: statusIsWorking = statuses.get(file.status)?.working || false;
 
   async function doFileAction(body: any) {
     /* POST action request for this File */
@@ -94,6 +94,32 @@
     // different statuses.
     doFileAction({ action: 'APPROVE_UPLOAD' });
   }
+
+  async function revertRecordStatuses(evt: CustomEvent) {
+    const resp = await fetch($page.url.pathname, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'REVERT_RECORDS',
+        toStatus: evt.detail.revertToId,
+        ...evt.detail.filter.filterObj
+      })
+    });
+
+    const response = await resp.json();
+
+    recordsTableInstance.resetFilters();
+    selectedTabIdx = 0;
+
+    alert(JSON.stringify(response));
+  }
+
+  let res;
+  const diagramVisiblePromise: Promise<boolean> = new Promise(
+    (resolve, reject) => {
+      res = resolve;
+    }
+  );
+  diagramVisiblePromise.then(console.log);
 </script>
 
 <Breadcrumb noTrailingSlash>
@@ -116,91 +142,71 @@
   {#if file.isDevelopment}<Tag>Development File</Tag>{/if}
 </h2>
 <div class="local">
-  <Tag class={statusIsWorking ? 'working' : ''}>{statusString}</Tag>
+  <StatusTag {file} />
   {#if file.status == File_Status.WAITING_APPROVAL_TO_UPLOAD}
     <Button on:click={approveFileUploading}>Upload Records</Button>
   {/if}
 </div>
 
-<div class="file_details">
-  <Progress {file} />
-  <Grid>
-    <Row>
-      <Column>
-        <h5>Size</h5>
-        {fmtNum(file.sizeBytes / 1000n)} KB
-      </Column>
-      <Column>
-        <h5>MD5 Hash</h5>
-        {bufferToHex(file.hash)}
-      </Column>
-    </Row>
-    <Row>
-      <Column>
-        <h5>Tags</h5>
-        <PrettyJson json={file.tags} />
-      </Column>
-      <Column>
-        {#if file.headerColumns}
-          <h5>Detected Header Columns</h5>
-          {file.headerColumns.join(', ')}
-        {/if}
-      </Column>
-    </Row>
-  </Grid>
-</div>
+<Tabs selected={selectedTabIdx}>
+  <Tab label="Details" />
+  <Tab
+    label="Graph"
+    on:click={() => {
+      setTimeout(res, 100);
+    }}
+  />
+  <Tab label="Records" on:click={() => recordsTableInstance.resizeTable()} />
+  <Tab label="Logs" />
+  {#if file.status >= File_Status.UPLOADED}<Tab label="Reports" />{/if}
 
-<ProcessingLogsTable bind:logs={file.log} />
+  <svelte:fragment slot="content">
+    <!-- Tab: Details -->
+    <TabContent>
+      <Details {file} />
+    </TabContent>
 
-{#if file.status >= File_Status.UPLOADED}
-  <h3>Reports</h3>
-  <Outputs {file} {filetype} on:runReport={runReport} />
-{/if}
+    <!-- Tab: Graph -->
+    <TabContent class="graph">
+      <Diagram
+        {file}
+        {filetype}
+        {functions}
+        visiblePromise={diagramVisiblePromise}
+      />
+    </TabContent>
+
+    <!-- Tab: Records -->
+    <TabContent>
+      <RecordsTable
+        {file}
+        {filetype}
+        on:revert={revertRecordStatuses}
+        bind:this={recordsTableInstance}
+      />
+    </TabContent>
+
+    <!-- Tab: Logs -->
+    <TabContent>
+      <ProcessingLogsTable bind:logs={file.log} />
+    </TabContent>
+
+    <!-- Tab: Reports -->
+    {#if file.status >= File_Status.UPLOADED}
+      <TabContent>
+        <Outputs {file} {filetype} on:runReport={runReport} />
+      </TabContent>
+    {/if}
+  </svelte:fragment>
+</Tabs>
 
 <style>
   .id {
     font-size: 50%;
   }
 
-  .file_details {
-    display: flex;
-    margin: 30px 0;
-    justify-content: space-between;
-  }
-
-  .file_details > :global(.bx--grid) {
-    flex-grow: 1;
-  }
-
-  .file_details :global(.bx--grid) {
-    margin: 0 0 0 80px;
-    padding: 0;
-  }
-
-  .file_details :global(.bx--row) {
-    margin-bottom: 3rem;
-  }
-
-  .file_details :global(.bx--col) {
-    width: 50%;
-  }
-
-  .local :global(.working) {
-    background-color: #222;
-    animation-name: pulsing;
-    animation-duration: 1s;
-    animation-iteration-count: infinite;
-  }
-
-  @keyframes pulsing {
-    0% {
-      background-color: #5c8ddb;
-    }
-    50% {
-      background-color: #4285f4;
-    }
-    100% {
-      background-color: #5c8ddb;
-    }
+  :global(.graph) {
+    height: 100%;
+    min-height: 500px;
   }
 </style>

@@ -179,6 +179,7 @@ message ProcessingLog {
     VALIDATOR = 4;
     AGGREGATOR = 5;
     UPLOADER = 6;
+    REPORTER = 7;
     MANUAL_REQUEST = 20;
   }
 
@@ -274,6 +275,8 @@ message OutputInstance {
 
   uint32 startTime = 4;
   uint32 endTime = 5;
+
+  uint32 records = 8;
 
   repeated ProcessingLog log = 6;
 

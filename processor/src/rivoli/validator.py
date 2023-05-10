@@ -57,6 +57,9 @@ class Validator(record_processor.DbChunkProcessor):
     self.errors: list[protos.ProcessingLog] = []
     """ Accumulation of a Record's errors. """
 
+    self._field_name_ids: dict[str, str] = {}
+    """ Map of field names to field IDs. """
+
     # Dict in the form of dct[RecordTypeId, dct[FieldTypeId, functionconfigs]
     self.field_validations: dict[int, dict[str, list[protos.FunctionConfig]]] = \
         collections.defaultdict(lambda: collections.defaultdict(list))
@@ -72,6 +75,8 @@ class Validator(record_processor.DbChunkProcessor):
       function_ids.update([val.functionId for val in recordtype.validations])
 
       for fieldtype in recordtype.fieldTypes:
+        self._field_name_ids[fieldtype.name] = fieldtype.id
+
         for validation in fieldtype.validations:
           self.field_validations[recordtype.id][fieldtype.name].append(
               validation)
@@ -85,7 +90,7 @@ class Validator(record_processor.DbChunkProcessor):
         protos.File.PARSED)
     self.file.times.validatingStartTime = bson_format.now()
 
-    self._process_records(self._get_all_records())
+    self._process_records(self._get_all_records(protos.Record.PARSED))
     # Need to decide how to move onto the next step. What is the status if >0
     # Records failed validation? Probably still VALIDATED?
     # Then do we go onto processing or place it on PROCESSING_HOLD?
@@ -106,28 +111,37 @@ class Validator(record_processor.DbChunkProcessor):
     self.errors.clear()
     file_exception: t.Optional[Exception] = None
 
-    step_stat = self._get_step_stat(raw_record)
+    step_stat = self._get_step_stat(raw_record.recordType)
     step_stat.input += 1
 
     record_type_id = raw_record.recordType
 
     # Loop through each field and apply validations & modifications
     for field_name, value in record.items():
-      ss_field = self._get_step_stat(raw_record, field_name)
+      field_id = self._field_name_ids[field_name]
+      ss_field = self._get_step_stat(raw_record.recordType, field_id)
       ss_field.input += 1
 
       for cfg in self.field_validations[record_type_id][field_name]:
+        ss_field_func = self._get_step_stat(
+            raw_record.recordType, field_id, cfg.id)
+        ss_field_func.input += 1
+
         try:
           value = t.cast(str, self._call_function(
               protos.Function.FIELD_VALIDATION, cfg, value, field_name))
+          ss_field.success += 1
+          ss_field_func.success += 1
         except Exception as exc: # pylint: disable=broad-exception-caught
           ss_field.failure += 1
+          ss_field_func.failure += 1
+
           # No additional validations for this field
 
           # File level exceptions are any exception that's not a Record-level
           # exception, and requires us to re-raise later.
           if not isinstance(exc,
-              (exceptions.ValidationError, exceptions.ConfigurationError)):
+              (exceptions.ValidationError, exceptions.ExecutionError)):
             file_exception = exc
 
           break
@@ -144,21 +158,24 @@ class Validator(record_processor.DbChunkProcessor):
 
     if not self.errors:
       for cfg in self.recordtypes_map[record_type_id].validations:
+        ss_record_func = self._get_step_stat(raw_record.recordType, cfg.id)
+        ss_record_func.input += 1
+
         try:
           validated_fields = t.cast(dict[str, str],
               self._call_function(protos.Function.RECORD_VALIDATION, cfg,
               record))
+          ss_record_func.success += 1
         except Exception as exc: # pylint: disable=broad-exception-caught
+          ss_record_func.failure += 1
+
           # File level exceptions are any exception that's not a Record-level
           # exception, and requires us to re-raise later.
           if not isinstance(exc,
-              (exceptions.ValidationError, exceptions.ConfigurationError)):
+              (exceptions.ValidationError, exceptions.ExecutionError)):
             file_exception = exc
 
           break
-
-        # NEED TO HANDLE FILE_EXCEPTION AND TO FIGURE OUT HOW TO OVERWRITE THE RECORD, AND ALSO VALIDATED_FIELDS
-        # OVERWRITE RECORD HERE, AND THEN SET VALIDATED FIELDS LATER?
 
         # result_dct should be complete -- if the record-validation function
         # removes a field then we don't want to keep it

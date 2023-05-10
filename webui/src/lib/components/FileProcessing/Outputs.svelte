@@ -11,6 +11,7 @@
   } from '$lib/rivoli/protos/processing_pb';
   import { dateTime, makeObjectId } from '$lib/helpers/utils';
   import type { Message } from '@bufbuild/protobuf';
+  import { Download } from 'carbon-icons-svelte';
 
   export let file: File;
   export let filetype: FileType;
@@ -47,6 +48,15 @@
       {OutputInstance_Status[cell.value]}
     {:else if cell.key === 'outputId'}
       {filetype.outputs.find((o) => o.id === cell.value)?.name}
+    {:else if cell.key === 'outputFilename'}
+      <Button
+        size="small"
+        kind="tertiary"
+        icon={Download}
+        iconDescription="Download"
+        href="/files/{file.id}/reports/{row.id}/download"
+      />
+      {cell.value}
     {:else}
       {cell.value}
     {/if}

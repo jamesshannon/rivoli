@@ -193,7 +193,7 @@ class RecordUploader(record_processor.DbChunkProcessor):
     if not record_h:
       return None
 
-    step_stat = self._get_step_stat(record)
+    step_stat = self._get_step_stat(record.recordType)
 
     if not record_h.record_type.upload:
       # No upload function. Skip this record
@@ -227,12 +227,15 @@ class RecordUploader(record_processor.DbChunkProcessor):
 
   def _process_record(self, records: list[helpers.Record]
       ) -> t.Optional[pymongo.UpdateMany]:
-    step_stat = self._get_step_stat(records[0].updated_record)
-
     # A batch should never have more than one unique RecordType
     record_type = records[0].record_type
     # Get the upload function for this RecordType
     upload_func = self._functions[record_type.upload.functionId]
+
+    # These both specifically count the number of records not the number of
+    # "uploads" (which might be far fewer, if batched).
+    step_stat = self._get_step_stat(record_type.id)
+    step_stat_fn = self._get_step_stat(record_type.id, upload_func.id)
 
     # Uploading is unique because the function might take multiple Records or
     # a single Record.
@@ -281,6 +284,7 @@ class RecordUploader(record_processor.DbChunkProcessor):
 
       self.file.stats.uploadedRecordsSuccess += len(records)
       step_stat.success += len(records)
+      step_stat_fn.success += len(records)
     except (exceptions.ValidationError, exceptions.ExecutionError) as exc:
       # ValidationError should not occur. ExecutionError is more likely.
       # Either way, the error applies to all the records if in batch mode
@@ -298,6 +302,7 @@ class RecordUploader(record_processor.DbChunkProcessor):
 
       self.file.stats.uploadedRecordsError += len(records)
       step_stat.failure += len(records)
+      step_stat_fn.failure += len(records)
 
       self._retriable_record_cnt += len(records) if a_record.autoRetry else 0
 

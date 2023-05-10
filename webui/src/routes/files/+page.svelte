@@ -1,25 +1,38 @@
 <script lang="ts">
+  import { page } from '$app/stores';
+  import type { PageData } from './$types';
+
   import {
     Breadcrumb,
     BreadcrumbItem,
     Button,
+    ComboBox,
     Modal
   } from 'carbon-components-svelte';
 
   import Add from 'carbon-icons-svelte/lib/Add.svelte';
 
-  import { onMount } from 'svelte';
-
   import { SvelteDataTable } from '@mac-barrett/svelte-data-table';
-  import type { PageData } from './$types';
+  import type { JsonValue } from '@bufbuild/protobuf';
 
   import { File_Status } from '$lib/rivoli/protos/processing_pb';
+  import { Partner, FileType } from '$lib/rivoli/protos/config_pb';
+
+  import Upload from '$lib/components/FileProcessing/Upload.svelte';
 
   export let data: PageData;
   const partnerMap = data.partnerMap;
-  const filetypeMap = data.filetypeMap;
 
   let modalOpen = false;
+
+  const filetypeMap = new Map(
+    Array.from(partnerMap.values()).flatMap((p) =>
+      Partner.fromJson(p as any as JsonValue).fileTypes.map((ft) => [
+        ft.id,
+        ft.toJson() as any as FileType
+      ])
+    )
+  );
 
   function renderFileName(data, type: String, row) {
     if (type === 'display') {
@@ -74,8 +87,6 @@
     deferRender: true,
     ajax: async (tableData, callback, settings) => {
       // get from server
-      console.log(tableData);
-
       callback({ data: data.files, recordsTotal: 1000 });
     },
     columns: [
@@ -112,26 +123,18 @@
     ]
   };
 
-  /**
-   * @type {SvelteDataTable}
-   */
-  let myDataTable;
-  // let headers = ['One', 'Two', 'Three', 'Four'];
-  // let rows = [['1', '2', '3', '5']];
+  function uploadFile(evt: CustomEvent) {
+    console.log(evt.detail);
+    let formData = new FormData();
 
-  // onMount(async () => {
-  // 	console.log(myDataTable.getAPI());
-  // })
+    formData.append('file', evt.detail.fileFS);
+    formData.append('partnerId', evt.detail.partnerId);
+    formData.append('filetypeId', evt.detail.filetypeId);
 
-  // export const customDirective = (node) => {
-  //   onMount(() => {
-  //       // other logic
-  //       console.log(myDataTable.getAPI());
-  //   });
-  //}
+    console.log(formData);
 
-  //let rows = data.partners.map((p) => ({'id': p.id, 'name': p.name}));
-  //console.log(rows);
+    fetch($page.url.pathname, { method: 'POST', body: formData });
+  }
 </script>
 
 <Breadcrumb noTrailingSlash>
@@ -139,7 +142,7 @@
   <BreadcrumbItem isCurrentPage>File Processing</BreadcrumbItem>
 </Breadcrumb>
 
-<SvelteDataTable bind:this={myDataTable} {config} />
+<SvelteDataTable {config} />
 
 <Button
   kind="tertiary"
@@ -148,11 +151,4 @@
   icon={Add}>Add</Button
 >
 
-<Modal
-  bind:open={modalOpen}
-  modalHeading="Upload File"
-  shouldSubmitOnEnter={false}
-  primaryButtonText="Upload"
->
-  Upload a file...
-</Modal>
+<Upload {partnerMap} on:upload={uploadFile} bind:modalOpen />

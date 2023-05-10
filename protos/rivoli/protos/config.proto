@@ -93,6 +93,10 @@ message RecordType {
   repeated FunctionConfig destinations = 9;
 }
 
+message RecordsView {
+
+}
+
 message FieldType {
   string id = 1;
   bool active = 2;
