@@ -384,7 +384,7 @@ class DbChunkProcessor(RecordProcessor):
           self._pending_records.append(record_h)
 
         except Exception as exc:
-          logger.debug('Uncaptured Record processing function')
+          logger.debug('Uncaptured exception in Record processing function')
           # Uncaptured exception from a Record processing function. We update
           # the Record with the error and possibly raise the exception if it's
           # a File-level exception. In some cases the error has already been

@@ -1,6 +1,11 @@
 <script lang="ts">
   import { page } from '$app/stores';
 
+  import {
+    InlineNotification,
+    NotificationActionButton
+  } from 'carbon-components-svelte';
+
   import { SvelteDataTable } from '@mac-barrett/svelte-data-table';
 
   import { RecordsFilter } from '$lib/helpers/file_processing/records';
@@ -29,6 +34,8 @@
   let filter = new RecordsFilter();
   let statusCounts: Map<string, number> = new Map();
 
+  let fileUpdatedSinceRecordsLoad = false;
+
   export function resetFilters() {
     // Expose this function to reset table and filter component filters
     recordFilterInstance.resetFilters();
@@ -44,7 +51,6 @@
     // Filter & redraw the datatable when the dropdown is changed
     // This causes the datatable to call retrieveRecords()
     // Can't use reactivity because this causes filter to be updated
-    console.log('update', filter);
     recordsDataTable
       ?.getAPI()
       ?.column('status:name')!
@@ -109,6 +115,8 @@
       filter.resultCount = file.stats?.totalRows || 0;
     }
 
+    fileUpdatedSinceRecordsLoad = false;
+
     callback({
       draw: parseInt(requestData.draw),
       data: records,
@@ -131,7 +139,26 @@
       }
     }
   }
+
+  // Set this variable to true every time file is updated.
+  $: fileUpdatedSinceRecordsLoad = !!file;
 </script>
+
+{#if fileUpdatedSinceRecordsLoad}
+  <InlineNotification
+    lowContrast
+    kind="info"
+    title="Possible Updates Pending"
+    subtitle="The File record has been updated and these records may need to be refreshed"
+  >
+    <svelte:fragment slot="actions">
+      <NotificationActionButton
+        on:click={() => recordsDataTable.getAPI()?.ajax.reload()}
+        >Refresh</NotificationActionButton
+      >
+    </svelte:fragment>
+  </InlineNotification>
+{/if}
 
 <RecordFilter
   {file}
