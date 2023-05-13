@@ -161,12 +161,14 @@
           <Column>
             <TextInput
               labelText="Filename Date Regexp"
+              helperText="Must capture YEAR, MONTH, and DAY groups"
               bind:value={filetype.filenameDateRegexp}
             />
           </Column>
           <Column>
             <TextInput
               labelText="Filename Date Format"
+              helperText="Parses captured date in YEAR-MONTH-DATE. Default is %Y-%m-%d."
               bind:value={filetype.filenameDateFormat}
             />
           </Column>

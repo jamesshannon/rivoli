@@ -13,9 +13,11 @@
 
   if (file) {
     // node.id is not the report id
+    console.log(file.outputs, node.id);
     const inst = file.outputs.reverse().find((o) => o.outputId === node.id);
     if (inst) {
-      // inst is the most-recent report instance. we ignore previous ones.
+      console.log(inst);
+      // inst is the most-recent report instance for this report.
     }
   }
 
@@ -30,9 +32,9 @@
 </script>
 
 <DefaultNode {node} showOutputAnchors={false}>
-  <Layout icon={Report} titleText={node.name} description="Parse Fields">
+  <Layout icon={Report} titleText={node.name} description="Generate Report">
     {#if file}
-      {file.stats?.loadedRecordsSuccess} rows
+      Hello
     {/if}
   </Layout>
 </DefaultNode>

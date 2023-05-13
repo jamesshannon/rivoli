@@ -22,9 +22,9 @@
 </script>
 
 <DefaultNode {node} {status} {inputCount}>
-  <Layout icon={Column} titleText={node.name} description="Parse Fields">
+  <Layout icon={Column} titleText={node.name} description="Parse Field">
     {#if file}
-      {file.stats?.loadedRecordsSuccess} rows
+      {file.stats?.parsedRecordsSuccess} records
     {/if}
   </Layout>
 </DefaultNode>

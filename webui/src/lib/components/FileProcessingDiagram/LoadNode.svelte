@@ -24,7 +24,7 @@
 <DefaultNode {node} {status} {inputCount}>
   <Layout icon={CloudUpload} titleText={node.name} description="Load Records">
     {#if file}
-      {file.stats?.loadedRecordsSuccess} rows
+      {file.stats?.loadedRecordsSuccess} records
     {/if}
   </Layout>
 </DefaultNode>
