@@ -38,30 +38,14 @@
   //[nodes, groupPosTuple]
 </script>
 
-{#await visiblePromise then _}
-  {#await prom then [nodes, groupPosTuple]}
-    <!-- {JSON.stringify(Array.from(nodes.values()))} -->
-    <Svelvet id="xyz" TD zoom={0.6} locked>
-      <!-- Non-validation Nodes -->
-      {#each [...nodes.values()] as node}
-        {#if !node.isValidation}
-          <svelte:component
-            this={customNodes[node.svelteComponentName]}
-            {node}
-            {file}
-          />
-        {/if}
-      {/each}
-
-      <!-- Validation Nodes -->
-      <Group
-        color="#0000FF33"
-        groupName="validation"
-        position={groupPosTuple[0]}
-        {...groupPosTuple[1]}
-      >
+<div class="local">
+  {#await visiblePromise then _}
+    {#await prom then [nodes, groupPosTuple]}
+      <!-- {JSON.stringify(Array.from(nodes.values()))} -->
+      <Svelvet id="xyz" TD zoom={0.6} locked>
+        <!-- Non-validation Nodes -->
         {#each [...nodes.values()] as node}
-          {#if node.isValidation}
+          {#if !node.isValidation}
             <svelte:component
               this={customNodes[node.svelteComponentName]}
               {node}
@@ -69,7 +53,35 @@
             />
           {/if}
         {/each}
-      </Group>
-    </Svelvet>
+
+        <!-- Validation Nodes -->
+        <Group
+          color="#0000FF33"
+          groupName="validation"
+          position={groupPosTuple[0]}
+          {...groupPosTuple[1]}
+        >
+          {#each [...nodes.values()] as node}
+            {#if node.isValidation}
+              <svelte:component
+                this={customNodes[node.svelteComponentName]}
+                {node}
+                {file}
+              />
+            {/if}
+          {/each}
+        </Group>
+      </Svelvet>
+    {/await}
   {/await}
-{/await}
+</div>
+
+<style>
+  .local {
+    min-height: 500px;
+    height: 100%;
+  }
+  .local :global(div.default-label) {
+    font-size: 1.4rem;
+  }
+</style>

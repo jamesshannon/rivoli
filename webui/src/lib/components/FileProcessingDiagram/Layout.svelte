@@ -20,6 +20,8 @@
 <style>
   .node_layout {
     max-width: 100%;
+    font-size: 1.3rem;
+    line-height: 1;
   }
 
   h4 {
@@ -41,6 +43,7 @@
   }
 
   div.desc {
-    font-size: 1.3rem;
+    font-size: 1.5rem;
+    font-weight: bold;
   }
 </style>

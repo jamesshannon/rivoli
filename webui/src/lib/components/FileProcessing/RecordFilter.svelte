@@ -48,7 +48,6 @@
   $: revertToId = revertToStatuses
     ? revertToDropdownOptions[revertToDropdownOptions.length - 1].id
     : '';
-  $: console.log('reactive dropdown options', revertToDropdownOptions);
 
   $: statusDropdownOptions = [{ id: '', text: 'All Statuses' }].concat(
     Array.from(statusCounts).map(([status, cnt]) => ({
@@ -82,8 +81,6 @@
     // bubble up a revert, along with revertToId
     dispatch('revert', { filter: filter, revertToId: revertToId });
   }
-
-  $: console.log('rf filter status:', filter.status);
 </script>
 
 <div id="filters">

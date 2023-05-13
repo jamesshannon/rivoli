@@ -14,7 +14,7 @@
 <DefaultNode {node} showInputAnchors={false} status="COMPLETE">
   <Layout icon={DocumentAdd} titleText={node.name} description="Create File">
     {#if file && file.stats?.approximateRows}
-      ~{file.stats?.approximateRows} rows
+      ~{file.stats?.approximateRows} lines
     {/if}
   </Layout>
 </DefaultNode>

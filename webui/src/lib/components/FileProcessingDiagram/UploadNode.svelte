@@ -21,13 +21,13 @@
   let key = file ? ['UPLOAD', node.record.id, node.cfg.id].join('.') : '';
 
   $: stepStat = key ? file?.stats?.steps[key] : undefined;
-  $: inputCount = (stepStat?.input || 0).toString();
+  $: inputCount = (stepStat?.input || '').toString();
 </script>
 
 <DefaultNode {node} {status} {inputCount} width={450}>
   <Layout icon={FunctionMath} titleText={node.name} description="Upload Record">
     {#if file}
-      Uploaded {file.stats?.uploadedRecordsSuccess} rows
+      Uploaded {file.stats?.uploadedRecordsSuccess} records
     {/if}
   </Layout>
 </DefaultNode>

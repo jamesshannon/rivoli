@@ -51,6 +51,12 @@ def from_proto(msg: message.Message, ordered: bool = False) -> dict[str, t.Any]:
 
 def get_update_map(msg: message.Message, fields: list[str],
     list_append_fields: t.Optional[list[str]] = None) -> dict[str, t.Any]:
+  """ Create a mongodb update map based on message and fields-to-update.
+  Specified fields which are set in the message (and thus generated in the
+  dictionary-creation, which is sparse) and $set in mongodb. Fields not set
+  in the message are explicitly $unset. Fields in `list_appand_fields` are
+  added to a list field within the mongodb document.
+  """
   update_map: dict[str, t.Any] = collections.defaultdict(dict)
   dct = from_proto(msg)
 
@@ -65,6 +71,8 @@ def get_update_map(msg: message.Message, fields: list[str],
 
   for field in (list_append_fields or []):
     if field in dct:
+      # The field should be a list in its own right -- $each is the equivalent
+      # of a_list.extend(...)
       assert isinstance(dct[field], list)
       update_map['$addToSet'][field] = {'$each': dct[field]}
 
@@ -78,7 +86,8 @@ def get_filter_map(msg: message.Message, fields: list[str]
   return {field: dct[field] for field in fields}
 
 def get_update_args(msg: message.Message, update_fields: list[str],
-    filter_fields: t.Optional[list[str]] = None
+    filter_fields: t.Optional[list[str]] = None,
+    list_append_fields: t.Optional[list[str]] = None
     ) -> tuple[dict[str, t.Any], dict[str, t.Any]]:
   """ Get tuple of (filter, update_map) to pass to mongo functions.
   First item is the filter map using, by default, the Message's ID.
@@ -87,7 +96,7 @@ def get_update_args(msg: message.Message, update_fields: list[str],
   filter_fields = filter_fields or ['id']
 
   return (get_filter_map(msg, filter_fields),
-          get_update_map(msg, update_fields))
+          get_update_map(msg, update_fields, list_append_fields))
 
 def now() -> int:
   """ Now timestamp compatible with protobufs (ie, uint32) """

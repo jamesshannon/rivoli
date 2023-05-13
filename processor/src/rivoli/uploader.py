@@ -194,6 +194,7 @@ class RecordUploader(record_processor.DbChunkProcessor):
       return None
 
     step_stat = self._get_step_stat(record.recordType)
+    step_stat.input += 1
 
     if not record_h.record_type.upload:
       # No upload function. Skip this record
@@ -235,7 +236,7 @@ class RecordUploader(record_processor.DbChunkProcessor):
     # These both specifically count the number of records not the number of
     # "uploads" (which might be far fewer, if batched).
     step_stat = self._get_step_stat(record_type.id)
-    step_stat_fn = self._get_step_stat(record_type.id, upload_func.id)
+    step_stat_fn = self._get_step_stat(record_type.id, record_type.upload.id)
 
     # Uploading is unique because the function might take multiple Records or
     # a single Record.

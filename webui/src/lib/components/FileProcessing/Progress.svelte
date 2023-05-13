@@ -26,10 +26,11 @@
       <h5>Create File</h5>
       {dateTime(file.created)}<br />
       {#if file.stats?.approximateRows}
-        Approximate Rows: {fmtNum(file.stats?.approximateRows)}<br />
+        Approximate Lines: {fmtNum(file.stats?.approximateRows)}<br />
       {/if}
     </ProgressStep>
     <ProgressStep
+      invalid={file.status == File_Status.LOAD_ERROR}
       complete={file.status >= File_Status.LOADING}
       description="Read file, detect record type(s), and load individual records into database"
     >
@@ -41,6 +42,7 @@
       {/if}
     </ProgressStep>
     <ProgressStep
+      invalid={file.status == File_Status.PARSE_ERROR}
       complete={file.status >= File_Status.PARSING}
       description="Parse fields from loaded records based on record format"
     >
@@ -52,6 +54,7 @@
       {/if}
     </ProgressStep>
     <ProgressStep
+      invalid={file.status == File_Status.VALIDATE_ERROR}
       complete={file.status >= File_Status.VALIDATING}
       description="Validate individual fields and entire records"
     >
@@ -67,6 +70,7 @@
       {/if}
     </ProgressStep>
     <ProgressStep
+      invalid={file.status == File_Status.UPLOAD_ERROR}
       complete={file.status >= File_Status.UPLOADING}
       description="Upload records to final destination"
     >

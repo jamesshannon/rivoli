@@ -30,7 +30,14 @@
   import Diagram from '$lib/components/FileProcessing/Diagram.svelte';
 
   function setFileFromData() {
-    file = File.fromJson(data.file as any, { ignoreUnknownFields: true });
+    let newFile = File.fromJson(data.file as any, {
+      ignoreUnknownFields: true
+    });
+    // Only update the file if it has changed. This prevents a lot of other
+    // code from unnecessarily reacting on every refresh.
+    if (!newFile.equals(file)) {
+      file = newFile;
+    }
   }
 
   export let data: PageData;
@@ -119,7 +126,6 @@
       res = resolve;
     }
   );
-  diagramVisiblePromise.then(console.log);
 </script>
 
 <Breadcrumb noTrailingSlash>
