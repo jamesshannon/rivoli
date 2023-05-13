@@ -45,6 +45,9 @@
   );
 
   function disableDropdownItemsOnFilename(file: File, requireMatch: boolean) {
+    // Disable items in the file type drop down list based on the name of the
+    // uploaded file. In other words, only allow file types to be selected which
+    // match the file name.
     numEnabled = 0;
 
     filetypeDropdownItems.forEach((i) => {
@@ -56,8 +59,6 @@
 
       numEnabled += i.disabled ? 0 : 1;
     });
-
-    console.log('updated disable', filetypeDropdownItems, numEnabled);
   }
 
   function fileDropHandler(evt: CustomEvent) {

@@ -33,7 +33,7 @@
     let newFile = File.fromJson(data.file as any, {
       ignoreUnknownFields: true
     });
-    // Only update the file if it has changed. This prevents other a lot of
+    // Only update the file if it has changed. This prevents a lot of other
     // code from unnecessarily reacting on every refresh.
     if (!newFile.equals(file)) {
       file = newFile;
