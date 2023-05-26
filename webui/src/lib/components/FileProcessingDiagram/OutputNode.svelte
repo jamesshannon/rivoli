@@ -16,7 +16,6 @@
     console.log(file.outputs, node.id);
     const inst = file.outputs.reverse().find((o) => o.outputId === node.id);
     if (inst) {
-      console.log(inst);
       // inst is the most-recent report instance for this report.
     }
   }
@@ -34,7 +33,7 @@
 <DefaultNode {node} showOutputAnchors={false}>
   <Layout icon={Report} titleText={node.name} description="Generate Report">
     {#if file}
-      Hello
+      ...
     {/if}
   </Layout>
 </DefaultNode>

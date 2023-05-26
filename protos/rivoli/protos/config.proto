@@ -147,7 +147,8 @@ message DestinationFile {
 }
 
 message InteractiveReport {
-  bool requireConfirmation = 1;
+  bool requireRecordConfirmation = 1;
+  bool requireReportConfirmation = 2;
 }
 
 message OutputConfiguration {
@@ -160,6 +161,8 @@ message OutputConfiguration {
 
   bool allRecordTypes = 10;
   repeated uint32 recordTypeRef = 7;
+
+  repeated string failedFunctionConfigs = 11;
 
   // Field Configuration
   // This is a fairly simple configuration -- this could get really complex

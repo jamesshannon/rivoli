@@ -21,17 +21,13 @@
   import Upload from '$lib/components/FileProcessing/Upload.svelte';
 
   export let data: PageData;
-  const partnerMap = data.partnerMap;
+  const partnerMap = new Map(data.partners.map(p => [p.id, Partner.fromJson(p as any)]));
 
   let modalOpen = false;
 
   const filetypeMap = new Map(
     Array.from(partnerMap.values()).flatMap((p) =>
-      Partner.fromJson(p as any as JsonValue).fileTypes.map((ft) => [
-        ft.id,
-        ft.toJson() as any as FileType
-      ])
-    )
+        p.fileTypes.map((ft) => [ft.id, ft]))
   );
 
   function renderFileName(data, type: String, row) {

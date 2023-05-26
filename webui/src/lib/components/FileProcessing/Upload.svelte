@@ -5,9 +5,10 @@
     Checkbox,
     ComboBox,
     FileUploaderDropContainer,
-    InlineLoading,
     Modal
   } from 'carbon-components-svelte';
+
+  import type { ComboBoxItem } from 'carbon-components-svelte/types/ComboBox/ComboBox.svelte';
 
   import type { Partner } from '$lib/rivoli/protos/config_pb';
 
@@ -70,6 +71,11 @@
     }
   }
 
+  function shouldFilterItem(item: ComboBoxItem, value: string) {
+    if (!value) return true;
+    return item.text.toLowerCase().includes(value.toLowerCase());
+  }
+
   function submitHandler(evt: CustomEvent) {
     if (selectedFtId) {
       dispatch('upload', {
@@ -98,7 +104,6 @@
     <Checkbox
       labelText="Require file name match"
       bind:checked={requireNameMatch}
-      disabled={true}
     />
 
     <ComboBox
@@ -106,6 +111,7 @@
       invalid={numEnabled == 0}
       invalidText="No File Type file match expressions match the uploaded filename."
       items={filetypeDropdownItems}
+      {shouldFilterItem}
       bind:selectedId={selectedFtId}
     />
   </Modal>

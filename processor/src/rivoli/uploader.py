@@ -1,6 +1,4 @@
 """ Uploader Module. """
-import itertools
-import time
 import typing as t
 
 import pymongo
@@ -176,9 +174,10 @@ class RecordUploader(record_processor.DbChunkProcessor):
   def _preprocess_chunk(self, records: list[protos.Record]) -> None:
     """ Pre-process the chunk of records and look for duplicates.
     Query the database for matching hashes of already-uploaded records,
-    including from other files then save them to the instance so that they can
+    (including from other Files) then save them to the instance so that they can
     be checked during processing.
     """
+    # NB: This will not detect duplicates within the same chunk
     hashes = list(filter(None, [r.hash for r in records]))
     hashes_cursor = self.db.records.find(
         {'hash': {'$in': hashes}, 'status': {'$gte': protos.Record.UPLOADED}},
@@ -201,17 +200,20 @@ class RecordUploader(record_processor.DbChunkProcessor):
       # If scenario becomes common then we could compile the recordTypes with
       # upload functions and filter for those in mongo
       step_stat.failure += 1
+      self.file.stats.uploadedRecordsError += 1
       return None
 
     if record.uploadConfirmationId:
       # This should not happen, but since we the parent method already filtered
       # on status then something might be wrong internally
       step_stat.failure += 1
+      self.file.stats.uploadedRecordsError += 1
       raise ValueError('uploadConfirmationId is not empty')
 
     if record.hash in self._uploaded_hashes:
       # A record with the same hash already exists
       step_stat.failure += 1
+      self.file.stats.uploadedRecordsError += 1
       raise exceptions.ValidationError('Record data already uploaded')
 
      # Is this Record the beginning of a new batch?
@@ -237,6 +239,10 @@ class RecordUploader(record_processor.DbChunkProcessor):
     # "uploads" (which might be far fewer, if batched).
     step_stat = self._get_step_stat(record_type.id)
     step_stat_fn = self._get_step_stat(record_type.id, record_type.upload.id)
+
+    # The non-function step has already been created and incremented in
+    # _preprocess_record
+    step_stat_fn.input += 1
 
     # Uploading is unique because the function might take multiple Records or
     # a single Record.

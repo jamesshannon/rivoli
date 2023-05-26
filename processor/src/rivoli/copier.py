@@ -195,6 +195,9 @@ class LocalFileCopier(Copier):
 
   def evaluate_file(self, file: pathlib.Path) -> protos.CopyLog.EvaluatedFile:
     """ Evaluate a file to determine if it should be copied. """
+    # This can cause a race condition if another process (for another partner)
+    # finds the file first and already copied it in which case this might
+    # generate a FileNotFoundError
     filelog = protos.CopyLog.EvaluatedFile(
       name=file.name,
       sizeBytes=file.stat().st_size

@@ -7,6 +7,7 @@ from rivoli import loader
 from rivoli import parser
 from rivoli import validator
 from rivoli import uploader
+from rivoli import reporter
 
 import importlib
 import pathlib
@@ -19,25 +20,37 @@ from rivoli.protos.processing_pb2 import RecordStats
 from rivoli.protobson import bson_format
 from rivoli import protos
 
-FILE_ID = 18
+FILE_ID = 59
+
+def reset_file(file_id: int) -> None:
+  """ Reset file for testing. """
+  # remove records and reset file status
+  file = db.get_one_by_id('files', file_id, protos.File)
+  file.status = protos.File.NEW
+  db.get_db().files.update_one(*bson_format.get_update_args(file, ['status']))
+
+  prefix = file.id << 32
+  filter_ = {'_id': {'$gte': prefix, '$lte': prefix + ((1 << 32) - 1)}}
+  db.get_db().records.delete_many(filter_)
 
 if __name__ == '__main__':
-  #print(str(bson.ObjectId()))
-  #config.get_filetypes()
-  copier.scan('641d47816af10755674ffdd1')
-  copier.scan('641ddc817328627725c1e3a1')
+  #copier.setup_scan_tasks()
+  #copier.scan('641d47816af10755674ffdd1')
+  #copier.scan('641ddc817328627725c1e3a1')
   #copier.copy.delay('p1')
 
+  #reset_file(FILE_ID)
+
   #loader.load_from_id(FILE_ID)
-  #loader.load.delay('64044842a3452308a9e59330')
 
   #parser.parse(FILE_ID)
   #print(db.get_db().records.index_information())
 
-  #validator.validate(FILE_ID)
+  validator.validate(FILE_ID)
 
   #uploader.upload(FILE_ID)
-  #db.get_next_id('some_collection')
+
+  #reporter.report(FILE_ID, '645c27c8592438e670453a97')
 
   # a = RecordStats()
   # a.steps['LOAD'].input = 1
@@ -47,7 +60,4 @@ if __name__ == '__main__':
   # print(bson_format.to_proto(protos.StepStats, dct))
 
   pass
-
-
-
 

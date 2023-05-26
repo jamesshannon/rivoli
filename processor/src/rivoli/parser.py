@@ -86,6 +86,9 @@ class DelimitedParser(Parser):
 
         self.fieldnames[recordtype.id] = [fieldname_mapping.get(col)
                                           for col in self.file.headerColumns]
+
+        del self.file.parsedColumns[:]
+        self.file.parsedColumns.extend(list(fieldname_mapping.values()))
       else:
         # Otherwise we have to create a list of fieldnames, but with Nones
         # for columns that don't get imported.
@@ -166,4 +169,5 @@ class DelimitedParser(Parser):
     self.file.times.parsingEndTime = bson_format.now()
 
     self._update_file(
-      ['headerColumns', 'status', 'stats', 'times', 'log', 'recentErrors'])
+      ['headerColumns', 'parsedColumns', 'status', 'stats', 'times', 'log',
+       'recentErrors'])

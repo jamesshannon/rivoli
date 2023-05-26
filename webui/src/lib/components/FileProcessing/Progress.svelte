@@ -26,7 +26,7 @@
       <h5>Create File</h5>
       {dateTime(file.created)}<br />
       {#if file.stats?.approximateRows}
-        Approximate Lines: {fmtNum(file.stats?.approximateRows)}<br />
+        File Lines: {fmtNum(file.stats?.approximateRows)}<br />
       {/if}
     </ProgressStep>
     <ProgressStep
