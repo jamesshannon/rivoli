@@ -2,6 +2,8 @@
   import { page } from '$app/stores';
 
   import {
+      Button,
+    Checkbox,
     InlineNotification,
     NotificationActionButton
   } from 'carbon-components-svelte';
@@ -12,15 +14,26 @@
   import {
     Record_RecordTypeRef,
     type File,
-    Record_Status
+    Record_Status,
+    File_Status
   } from '$lib/rivoli/protos/processing_pb';
   import type { FileType } from '$lib/rivoli/protos/config_pb';
   import {
+    fileDetailLeftColumns,
+    errorsColumn,
     getTableConfig,
-    makeExpandedRow
+    makeExpandedRow,
+    makeDynamicColumns
   } from '$lib/helpers/file_processing/records_table';
 
   import RecordFilter from '$lib/components/FileProcessing/RecordFilter.svelte';
+
+  interface ColumnGroup {
+    key?: string;
+    title?: string;
+    visible: boolean;
+    length: number;
+  }
 
   export let file: File;
   export let filetype: FileType;
@@ -30,7 +43,73 @@
 
   const recordTypes = new Map(filetype.recordTypes.map((rt) => [rt.id, rt]));
 
-  const dtConfig = getTableConfig(retrieveRecords);
+  // Generate the column configuration
+  const columns: Array<object> = [];
+
+  const columnGroups: Array<ColumnGroup> = [];
+  let columnGroupParsed: ColumnGroup | undefined;
+  let columnGroupValidated: ColumnGroup | undefined;
+
+  columns.push(...fileDetailLeftColumns);
+  columnGroups.push({visible: true, length: columns.length});
+
+  if (file.status >= File_Status.PARSED && file.parsedColumns.length) {
+    const cols = makeDynamicColumns(file.parsedColumns, 'parsedFields');
+    columns.push(...cols);
+    columnGroupParsed =
+        {key: 'parsedFields', title: 'Parsed Fields', visible: false, length: cols.length};
+    columnGroups.push(columnGroupParsed);
+  }
+  if (file.status >= File_Status.VALIDATED && file.validatedColumns.length) {
+    const cols = makeDynamicColumns(file.validatedColumns, 'validatedFields');
+    columns.push(...cols);
+    columnGroupValidated =
+        {key: 'validatedFields', title: 'Validated Fields', visible: false, length: cols.length};
+    columnGroups.push(columnGroupValidated);
+  }
+
+  columns.push(...errorsColumn);
+  columnGroups.push({visible: true, length: 1});
+
+  console.log(columnGroups);
+
+  function removeGroupHeader() {
+    document.getElementById('table_group_header')?.remove();
+  }
+
+  function resetGroupHeader(tr: HTMLElement) {
+    let thead = tr.parentElement!;
+
+    // Possibly remove the group header row
+    removeGroupHeader();
+
+    // Add a new grouph header row
+    const tags = ['<tr id="table_group_header" class="groups">',
+        ...columnGroups
+            .filter((g) => g.visible)
+            .map((g) => `<th colspan="${g.length}">${g.title || ''}</th>`),
+        '</tr>'];
+
+    thead.insertAdjacentHTML('afterbegin', tags.join(''));
+  }
+
+  function updateColumnGroupVisibility() {
+    removeGroupHeader();
+
+    const api = recordsDataTable?.getAPI();
+    for (let group of [columnGroupParsed, columnGroupValidated]) {
+      if (group) {
+        api?.columns(`.${group.key}`).visible(group?.visible)
+      }
+    }
+
+    resizeTable();
+  }
+
+
+  const dtConfig = getTableConfig(retrieveRecords, columns);
+  dtConfig.headerCallback = resetGroupHeader;
+
   let filter = new RecordsFilter();
   let statusCounts: Map<string, number> = new Map();
 
@@ -45,6 +124,7 @@
     // The datatable doesn't auto-size correctly if it's instantiated while
     // hidden. Call this to resize.
     document.getElementById('table')!.style.width = '100%';
+    recordsDataTable?.getAPI()?.columns.adjust().draw();
   }
 
   function updateDatatableFilter() {
@@ -78,15 +158,9 @@
 
     // Array of objects to return to the datatable
     const records = [];
-    // Constant which allows us to determine the row number from the record id
-    const recordIdMask = (1n << 32n) - 1n;
 
     // Update the returned records
     for (let record of result.records) {
-      // Add a 0-based row number value. The row number can be calculated from
-      // the file ID and the record ID.
-      record.num = BigInt(record.id) & recordIdMask;
-
       // Convert the recordType to the appropriate enum value
       if (record.recordType < 1000) {
         record.recordType = Record_RecordTypeRef[record.recordType];
@@ -170,11 +244,37 @@
   bind:this={recordFilterInstance}
 />
 
+{#if columnGroupParsed}
+  <Checkbox labelText="Parsed Fields" bind:checked={columnGroupParsed.visible} on:check={updateColumnGroupVisibility} />
+{/if}
+{#if columnGroupValidated}
+  <Checkbox labelText="Validated Fields" bind:checked={columnGroupValidated.visible} on:check={updateColumnGroupVisibility} />
+{/if}
+
 <div class="local" on:click={expandRowHandler} on:keypress={expandRowHandler}>
   <SvelteDataTable bind:this={recordsDataTable} config={dtConfig} />
 </div>
 
+
+
 <style>
+  .local :global(thead th) {
+    vertical-align: bottom;
+  }
+
+  .local :global(thead tr.groups th:empty) {
+    border: 0;
+  }
+
+  .local :global(#table_wrapper .controls) {
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .local :global(#table_wrapper .controls > div) {
+    float: none;
+  }
+
   .local :global(div.expand-button) {
     cursor: pointer;
     position: relative;
@@ -237,6 +337,15 @@
 
   .local :global(div.expanded_row span.raw) {
     background-color: rgba(0, 0, 0, 0.1);
+  }
+
+  .local :global(td.record_field) {
+    white-space: pre;
+    font-family: 'Courier New', Courier, monospace;
+  }
+
+  .local :global(td.errors) {
+    white-space: nowrap;
   }
 
   .local :global(.pretty_json .string) {
