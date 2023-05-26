@@ -23,6 +23,8 @@ message File {
   string fileTypeId = 7;
 
   repeated string headerColumns = 16;
+  repeated string parsedColumns = 23;
+  repeated string validatedColumns = 22;
 
   // Also included in the tags, but we might need to index and/or query
   // this field
@@ -102,6 +104,8 @@ message Record {
   map<string, string> validatedFields = 9;
   map<string, string> aggregatedFields = 10;
 
+  map<string, RecordOutput> outputsProcessing = 15;
+
   repeated ProcessingLog log = 12;
   repeated ProcessingLog recentErrors = 13;
 
@@ -127,6 +131,10 @@ message Record {
     RECORDTYPE_UNKNOWN = 0;
     HEADER = 1;
   }
+}
+
+message RecordOutput {
+  bool done = 1;
 }
 
 // Most log entries will be ProcessingLogs attached to the FileRecord; this is

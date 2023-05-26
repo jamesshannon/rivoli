@@ -1,8 +1,19 @@
 import { browser } from '$app/environment';
+
+import type { Message } from '@bufbuild/protobuf';
+
 import {
   ProcessingLog,
   ProcessingLog_LogLevel
 } from '$lib/rivoli/protos/processing_pb';
+
+export function jsonArray<T extends Message>(
+  obj: any,
+  field: string
+): Array<T> {
+  // Return a field value or, if it doesn't exit, an emtpy array
+  return obj[field] || Array();
+}
 
 export function makeLogMsg(
   message: string,

@@ -36,7 +36,6 @@ def validate(file_id: int) -> None:
 
   status_scheduler.next_step(file, filetype)
 
-
 class Validator(record_processor.DbChunkProcessor):
   """ Class to validate records.
   No need to subclass this as validation will not differ by file type. """
@@ -64,6 +63,14 @@ class Validator(record_processor.DbChunkProcessor):
     self.field_validations: dict[int, dict[str, list[protos.FunctionConfig]]] = \
         collections.defaultdict(lambda: collections.defaultdict(list))
 
+    # Keep track of every field name output from the validation function(s).
+    # In most cases this will be the same as the input (parsed) fields, but
+    # record validation functions can return whichever fields they want.
+    # OrderedDict is used in place of non-existent OrderedSet, and ensures
+    # uniqueness.
+    self._validated_field_keys: dict[str, t.Any] = collections.OrderedDict()
+    """ Set of all field names found. """
+
   def _process(self):
     """ Validate all the records. """
     function_ids: set[str] = set()
@@ -85,6 +92,7 @@ class Validator(record_processor.DbChunkProcessor):
     self._functions = admin_entities.get_functions_by_ids(function_ids)
 
     self._clear_stats('VALIDATE')
+    del self.file.validatedColumns[:]
 
     self._update_status_to_processing(protos.File.VALIDATING,
         protos.File.PARSED)
@@ -97,6 +105,7 @@ class Validator(record_processor.DbChunkProcessor):
 
     # Final update to the File record
     self.file.log.append(self._make_log_entry(False, 'Validated records'))
+    self.file.validatedColumns.extend(list(self._validated_field_keys.keys()))
 
   # Will also need an entrypoint to call this so that the UI can try to
   # (re-)validate a Record after a manual edit
@@ -195,6 +204,9 @@ class Validator(record_processor.DbChunkProcessor):
       # Coerce all the fields to strings, in case they aren't
       record.updated_record.validatedFields.update({key: str(val) for key, val
                                                 in validated_fields.items()})
+      # Update the field keys dict -- values will be overwritten and then
+      # ignored
+      self._validated_field_keys.update(validated_fields)
 
       step_stat.success += 1
     else:
@@ -257,4 +269,5 @@ class Validator(record_processor.DbChunkProcessor):
 
   def _close_processing(self) -> None:
     self.file.times.validatingEndTime = bson_format.now()
-    self._update_file(['status', 'log', 'recentErrors', 'times', 'stats'])
+    self._update_file(['status', 'log', 'recentErrors', 'times', 'stats',
+                       'validatedColumns'])

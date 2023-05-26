@@ -9,7 +9,12 @@ import {
   type Record,
   Record_Status
 } from '$lib/rivoli/protos/processing_pb';
-import { REVERTABLE_MAP } from '$lib/helpers/file_processing/records';
+import {
+  makeMongoRecordIdBaseFilter,
+  makeMongoRecordSearchFilter,
+  REVERTABLE_MAP,
+  type SearchParams
+} from '$lib/helpers/file_processing/records';
 
 // Map Record status to File Status to determine which status to set
 // the File to if the Records are reverted to "X"
@@ -19,56 +24,56 @@ const revertStatusMap = new Map([
   [Record_Status.VALIDATED, File_Status.VALIDATED]
 ]);
 
-function makeBaseFilter(fileId: string | number): [any, any] {
-  // Record ID portion is 1-based to correspond with file row numbers
-  const baseRecordId = (BigInt(fileId) << 32n) + 1n;
-  const maxRecordId = baseRecordId + ((1n << 32n) - 1n);
+export async function handleGetRequestOutputRecords(
+  fileId: string,
+  reqParams: SearchParams,
+  outputInstId: string
+) {
+  // need to generate a count for this particular filter
+  // {_id: {$gte: 219043330000}, recentErrors: {$elemMatch: {functionId: {$in: ["b921aea76104d6682dc2c636", "f829ef7b9e58b6d54b712e77"]}}}}
+  //
 
-  const options: any = { sort: { _id: 1 } };
-  const filter = { _id: { $gte: baseRecordId, $lte: maxRecordId } };
-  return [filter, options];
-}
+  const params = {
+    ...reqParams,
+    ...{recentErrors: ["b921aea76104d6682dc2c636"]}};
+  const [filter, options] = makeMongoRecordSearchFilter(fileId, params);
 
-function makeSearchFilter(fileId: string | number, params: any): [any, any] {
-  const [filter, options] = makeBaseFilter(fileId);
-  const startOffset = parseInt(params.start || '0');
+  console.log(filter, options);
 
-  if (params.status) {
-    // With active filters any skipping must be done by iterating through the
-    // records
-    filter.status = parseInt(params.status);
-    options.skip = startOffset;
-  } else {
-    // Without any filters we can skip with math!
-    filter._id.$gte = filter._id.$gte + BigInt(startOffset);
-  }
+  const countCursor = db
+    .collection('records')
+    .aggregate([
+      { $match: filter },
+      { $project: { status: 1 } },
+      { $count: 'count' }
+    ]);
+  const countP = getEntitiesList(countCursor);
 
-  return [filter, options];
+  const recordsCursor = db.collection('records').find(filter, options);
+  const recordsP = getEntitiesList<Record>(recordsCursor);
+
+  return json({records: await recordsP, count: (await countP)[0].count});
+
 }
 
 export async function getRequestRecords(
   fileId: string,
   reqParams: { [k: string]: string }
 ) {
-  const limit = parseInt(reqParams.length || '10');
-
   // Begin the aggregation counting with the "base" filter
   const countCursor = db
     .collection('records')
     .aggregate([
-      { $match: makeBaseFilter(fileId)[0] },
+      { $match: makeMongoRecordIdBaseFilter(fileId)[0] },
+      { $project: { status: 1 } },
       { $group: { _id: '$status', count: { $count: {} } } }
     ]);
+  const countP = getEntitiesList(countCursor);
 
-  const [filter, options] = makeSearchFilter(fileId, reqParams);
+  const [filter, options] = makeMongoRecordSearchFilter(fileId, reqParams);
 
   // Begin the scan for the batch of records
-  const recordsCursor = db
-    .collection('records')
-    .find(filter, options)
-    .limit(limit);
-
-  const countP = getEntitiesList(countCursor);
+  const recordsCursor = db.collection('records').find(filter, options);
   const recordsP = getEntitiesList<Record>(recordsCursor);
 
   const statusCounts: Map<string, number> = Object.fromEntries(
@@ -86,7 +91,7 @@ export async function handlePostRequestRevertRecords(
   const toRecordStatus = parseInt(reqBody.toStatus);
   const toRecordStatusName = Record_Status[toRecordStatus];
 
-  const [filter, _] = makeSearchFilter(fileId, reqBody);
+  const [filter, _] = makeMongoRecordSearchFilter(fileId, reqBody);
 
   if (!filter.status || !REVERTABLE_MAP.get(filter.status)) {
     // better error handling

@@ -1,3 +1,4 @@
+""" Abstract class for iterative processing. """
 import abc
 import itertools
 import re
@@ -42,7 +43,13 @@ class RecordProcessor(abc.ABC):
     self.db = db.get_db() # pylint: disable=invalid-name
 
   def process(self):
-    """ Process the records. """
+    """ Process the records.
+    This is the public entrypoint for record processing. It mostly calls
+    `_process()` (which must be implemented on child classes) and handles any
+    exceptions from that call. It also calls `_close_processing()` (also
+    in the child class) at the end in a finally block (ie, regardless of any
+    excpetions).
+    """
     # This method simply calls the child class' _process() method, but
     # captures exceptions and add them to the file, which is a common pattern
     try:
@@ -60,8 +67,17 @@ class RecordProcessor(abc.ABC):
       self.file.log.append(log)
       self.file.recentErrors.append(log)
 
-      logger.info('Updating File ID %s status to %s because of exception %s',
-          self.file.id, self._error_status, str(exc))
+
+      if isinstance(exc, (exceptions.ConfigurationError, )):
+        # ConfigurationErrors are "expected" errors and not indicative of
+        # a bug in the code
+        logger.info('Updating File ID %s status to %s because of exception %s',
+            self.file.id, self._error_status, str(exc))
+      else:
+        # Other exceptions are possibly a bug in the code
+        logger.error('Updating File ID %s status to %s because of exception %s',
+            self.file.id, self._error_status, str(exc))
+        traceback.print_exc()
 
       if self._error_status:
         self.file.status = self._error_status
@@ -73,7 +89,7 @@ class RecordProcessor(abc.ABC):
   def _process(self):
     """ Do the module-specific processing.
     _process() will typically do some setup then call
-    _update_status_to_Processing() and _process_records()
+    _update_status_to_processing() and _process_records()
     """
 
   @abc.abstractmethod
@@ -266,8 +282,6 @@ class DbChunkProcessor(RecordProcessor):
     ### Processing batching
     self._max_pending_records = 1
     """ Max records to queue for processing. """
-    self._pending_records: list[helpers.Record] = []
-    """ Records pending processing. Will often be max of 1 item. """
     self._should_process_records = False
     """ True to force processing of records. """
     self._is_batch_mode = False
@@ -322,11 +336,16 @@ class DbChunkProcessor(RecordProcessor):
 
   def _process_records(self, records: t.Generator[protos.Record, None, None],
       file_update_fields: t.Optional[list[str]] = None) -> None:
-    """ Process iterator of records in chunks. """
+    """ Process iterator of records in chunks.
+    This is typically called by the child-implemented _process() and simply
+    iterates through chunks (~1000 records) from the records generator. It then
+    calls `_preprocess_chunk()` and then `_process_chunk()`.
+
+    """
     while records_chunk := list(itertools.islice(records, self._db_chunk_size)):
       # Pre-process the *chunk*
       self._preprocess_chunk(records_chunk)
-      # Process the chunk
+      # Process the *chunk*
       self._process_chunk(records_chunk)
 
   def _preprocess_chunk(self, records: list[protos.Record]) -> None:
@@ -339,9 +358,13 @@ class DbChunkProcessor(RecordProcessor):
     last_update = time.time()
 
     record: t.Optional[protos.Record] = None
+
+    # Records pending processing. Will often be max of 1 item.
+    pending_records: list[helpers.Record] = []
     exceptional_update: t.Optional[pymongo.UpdateOne]
 
     #record_type: t.Optional[protos.RecordType] = None
+    import pdb
 
     try:
       for record in records:
@@ -355,11 +378,11 @@ class DbChunkProcessor(RecordProcessor):
 
           # Should the (batch of) records be processed?
           if (self._should_process_records
-              or len(self._pending_records) >= self._max_pending_records):
+              or len(pending_records) >= self._max_pending_records):
             # Process the (batch?) of records. E.g. validate or upload
-            pending_updates.append(self._process_record(self._pending_records))
+            pending_updates.append(self._process_record(pending_records))
 
-            self._pending_records.clear()
+            pending_records.clear()
             self._should_process_records = False
 
           # Should the batch of updates be written to the database?
@@ -381,7 +404,7 @@ class DbChunkProcessor(RecordProcessor):
           # Add the helpers.Record to the pending list. We do this down here
           # because this record might start a new batch, and can't be part of
           # the previous batch
-          self._pending_records.append(record_h)
+          pending_records.append(record_h)
 
         except Exception as exc:
           logger.debug('Uncaptured exception in Record processing function')
@@ -431,18 +454,18 @@ class DbChunkProcessor(RecordProcessor):
       # If the chunk is empty and there are still pending records to process --
       # there should typically be at least one -- then do that now and add to
       # pending_updates which will get updated as part of the finally block
-      if self._pending_records:
-        pending_updates.append(self._process_record(self._pending_records))
+      if pending_records:
+        pending_updates.append(self._process_record(pending_records))
 
     finally:
       pending_updates = list(filter(None, pending_updates))
-      logger.debug('Updating %s documents in db in finally block',
-          len(pending_updates))
 
       if pending_updates:
         # Write the batch of updates to the database. This will include any
         # updates from the loop, plus possible remaining update after the loop
         # or and update from a raised exception
+        logger.debug('Updating %s documents in db in finally block',
+            len(pending_updates))
         self.db.records.bulk_write(pending_updates, ordered=False)
         self._update_file(['status', 'log', 'times', 'stats'])
 

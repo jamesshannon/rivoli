@@ -56,23 +56,8 @@ def report(file_id: int, instance_id: str) -> None:
   inst = [inst for inst in file.outputs if inst.id == instance_id][0]
   output = [o for o in filetype.outputs if o.id == inst.outputId][0]
 
-  reporter = CsvReporter(file, partner, filetype, output)
+  reporter = CsvReporter(file, partner, filetype, inst, output)
   reporter.process()
-
-  # Update the instance message values, which are a reference to File.outputs,
-  # so these get updates when outputs is updated
-  inst.endTime = bson_format.now()
-  inst.outputFilename = str(reporter.report_path)
-  inst.status = protos.OutputInstance.SUCCESS
-
-  # Need to append new logs
-  # Can't update status because there might be others, so let
-  # status_scheduler figure that out.
-  # TODO: We shouldn't be updating outputs because that might overwrite changes
-  # to another output. We can instead overwrite a single output based on ID with
-  # https://stackoverflow.com/a/26199283/21529160
-  db.get_db().files.update_one(*bson_format.get_update_args(file, ['outputs'],
-      list_append_fields=['log', 'recentErrors']))
 
   status_scheduler.next_step(file, filetype)
 
@@ -84,8 +69,6 @@ def _fvals_original_columns(record: protos.Record) -> list[str]:
   """ Return the original loaded values. """
   return list(record.rawColumns)
 
-# TODO
-# * Save file status at end, add log entry
 
 class Reporter(record_processor.DbChunkProcessor):
   """ Base class to create processing reports. """
@@ -96,7 +79,8 @@ class Reporter(record_processor.DbChunkProcessor):
   _only_process_record_status = False
 
   def __init__(self, file: protos.File, partner: protos.Partner,
-      filetype: protos.FileType, output: protos.Output) -> None:
+      filetype: protos.FileType, inst: protos.OutputInstance,
+      output: protos.Output) -> None:
     super().__init__(file, partner, filetype)
 
     # Clear out the file log entries. We can't update the `log` sub-record
@@ -107,6 +91,7 @@ class Reporter(record_processor.DbChunkProcessor):
     # creates log entries.)
     del file.log[:]
 
+    self._report_instance = inst
     self._report_config = output
 
     # Length of field names should be the length of the output list post-
@@ -198,6 +183,9 @@ class Reporter(record_processor.DbChunkProcessor):
     """ Write a single record to the report. """
     assert len(records) == 1
 
+    step_stat = self._get_step_stat('REPORT', self._report_instance.id)
+    step_stat.input += 1
+
     record = records[0].orig_record
     field_values: list[str] = []
 
@@ -206,9 +194,26 @@ class Reporter(record_processor.DbChunkProcessor):
 
     self._write_line(field_values)
 
+    step_stat.success += 1
+
   def _close_processing(self) -> None:
     # Do nothing
-    pass
+    # Update the instance message values, which are a reference to File.outputs,
+    # so these get updates when outputs is updated
+    self._report_instance.endTime = bson_format.now()
+    self._report_instance.outputFilename = str(self.report_path)
+    self._report_instance.status = protos.OutputInstance.SUCCESS
+
+    # Need to append new logs
+    # Can't update status because there might be others, so let
+    # status_scheduler figure that out.
+    # TODO: We shouldn't be updating outputs because that might overwrite
+    # changes to another output. We can instead overwrite a single output based
+    # on ID with https://stackoverflow.com/a/26199283/21529160. Also, stats,
+    # which we should append just the appropriate key(s) to. Probably need
+    # to change the update_fields to be `stats.stepStats.ID`
+    db.get_db().files.update_one(*bson_format.get_update_args(self.file,
+        ['outputs', 'stats'], list_append_fields=['log', 'recentErrors']))
 
 class CsvReporter(Reporter):
   """ CSV Report Writer, includes header and no header. """

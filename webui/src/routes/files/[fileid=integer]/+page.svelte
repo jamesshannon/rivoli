@@ -83,8 +83,7 @@
     });
 
     const response = await resp.json();
-    //alert(JSON.stringify(response));
-    console.log(response);
+    alert(JSON.stringify(response));
 
     // force refresh of File
     refreshFile(1_000);
@@ -162,7 +161,10 @@
       setTimeout(res, 100);
     }}
   />
-  <Tab label="Records" on:click={() => recordsTableInstance.resizeTable()} />
+  <Tab
+    label="Records"
+    on:click={() => recordsTableInstance.resizeTable()}
+  />
   <Tab label="Logs" />
   {#if file.status >= File_Status.UPLOADED}<Tab label="Reports" />{/if}
 

@@ -161,12 +161,14 @@ export function makeGraph(
 
   for (let rt of ft.recordTypes) {
     let rtLoadNode = new RecordTypeLoadNode(rt);
-    let rtEndNode = new RecordTypeEndNode(rt);
+    //let rtEndNode = new RecordTypeEndNode(rt);
 
     ftCreateNode.addOutput(rtLoadNode);
 
     nodes.set(rtLoadNode.id, rtLoadNode);
-    nodes.set(rtEndNode.id, rtEndNode);
+    //nodes.set(rtEndNode.id, rtEndNode);
+
+    const priorNodes: Array<Node> = [];
 
     for (let fld of rt.fieldTypes) {
       let fieldParseNode = new FieldTypeParseNode(fld);
@@ -182,23 +184,32 @@ export function makeGraph(
         priorNode = fieldValidateNode;
       }
 
-      priorNode.addOutput(rtEndNode);
+      //priorNode.addOutput(rtEndNode);
+      priorNodes.push(priorNode);
     }
     // should there be an "unknown record types" node?
 
-    let priorNode: Node = rtEndNode;
+    //let priorNode: Node = rtEndNode;
     for (let val of rt.validations) {
       let recordVlidateNode = new ValidationNode(val, functions, rt);
       nodes.set(recordVlidateNode.id, recordVlidateNode);
-      priorNode.addOutput(recordVlidateNode);
-      priorNode = recordVlidateNode;
+
+      priorNodes.forEach(n => n.addOutput(recordVlidateNode));
+      priorNodes.length = 0;
+      priorNodes.push(recordVlidateNode);
+      // priorNode.addOutput(recordVlidateNode);
+      //priorNode = recordVlidateNode;
     }
 
     if (rt.upload) {
       let uploadNode = new RecordUploadNode(rt.upload, functions, rt);
       nodes.set(uploadNode.id, uploadNode);
-      priorNode.addOutput(uploadNode);
-      priorNode = uploadNode;
+
+      priorNodes.forEach(n => n.addOutput(uploadNode));
+      priorNodes.length = 0;
+      priorNodes.push(uploadNode);
+      // priorNode.addOutput(uploadNode);
+      // priorNode = uploadNode;
     }
 
     // priorNode.addOutput(ftEndNode);
@@ -206,7 +217,8 @@ export function makeGraph(
     for (let output of ft.outputs) {
       let outputNode = new OutputNode(output);
       nodes.set(outputNode.id, outputNode);
-      priorNode.addOutput(outputNode);
+      // priorNode.addOutput(outputNode);
+      priorNodes.forEach(n => n.addOutput(outputNode));
     }
   }
 
@@ -287,7 +299,6 @@ export async function calculatePlacement(
       height: maxBottom - minTop + 150 + 20
     }
   ];
-  console.log(group);
 
   return [nodes, group];
 }
