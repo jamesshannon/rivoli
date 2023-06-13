@@ -48,7 +48,7 @@ class RecordProcessor(abc.ABC):
     `_process()` (which must be implemented on child classes) and handles any
     exceptions from that call. It also calls `_close_processing()` (also
     in the child class) at the end in a finally block (ie, regardless of any
-    excpetions).
+    exceptions).
     """
     # This method simply calls the child class' _process() method, but
     # captures exceptions and add them to the file, which is a common pattern
@@ -253,6 +253,7 @@ class RecordProcessor(abc.ABC):
           None,
       **kwargs: t.Any
       ) -> protos.ProcessingLog:
+    """ Create a log entry. """
     return protos.ProcessingLog(
       source=self.log_source,
       level=protos.ProcessingLog.ERROR if error else protos.ProcessingLog.INFO,

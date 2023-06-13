@@ -232,7 +232,7 @@ class Validator(record_processor.DbChunkProcessor):
     # then we've already updated the record fields. Now we re-raise the
     # exception (with the record).
     if file_exception:
-      file_exception.update = update # pyright: reportGeneralTypeIssues=false
+      file_exception.update = update # pyright: ignore[reportGeneralTypeIssues]
       raise file_exception
 
     return update

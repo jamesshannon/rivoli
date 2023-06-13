@@ -45,7 +45,8 @@ def make_request(method: str, url: str, **kwargs: t.Any) -> t.Any:
       # This is basically a DNS error. It's actually a reraise of a lower-level
       # exception (socket.gaiaerror?) but we'll just parse the string
       raise exceptions.ConfigurationError(
-          f'Cannot find host for {urlparse.urlparse(url).netloc}') from exc
+          f'Cannot find host for {urlparse.urlparse(url).netloc}',
+          summary='Cannot find host') from exc
 
     if isinstance(exc, requests.exceptions.HTTPError):
       error_code = exc.response.status_code
@@ -56,7 +57,8 @@ def make_request(method: str, url: str, **kwargs: t.Any) -> t.Any:
 
     autoretry = error_code in AUTORETRY_CODES
 
-    raise exceptions.ExecutionError(str(exc), error_code, autoretry)
+    raise exceptions.ExecutionError(str(exc), autoretry, resp,
+                                    error_code=error_code)
 
   return resp.json()
 

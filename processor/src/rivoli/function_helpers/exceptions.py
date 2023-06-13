@@ -2,11 +2,30 @@
 import functools
 import typing as t
 
+import requests
+
 from rivoli import protos
 
 TCallable = t.TypeVar("TCallable", bound=t.Callable[[t.Any], t.Any])
 
-class ConfigurationError(ValueError):
+class RivoliError:
+  error_code: t.Union['protos.ProcessingLog.ErrorCode', int] = 0
+  summary: str = ''
+  api_log_id: t.Optional[str] = None
+
+  def __init__(self, *args: t.Any, **kwargs: t.Any):
+    error_code = kwargs.pop('error_code', None)
+    summary = kwargs.pop('summary', None)
+
+    super().__init__(*args, **kwargs)
+
+    if error_code:
+      self.error_code = error_code
+
+    if summary:
+      self.summary = summary
+
+class ConfigurationError(RivoliError, ValueError):
   """ A configuration error is systemic and fatal. Stops file processing.
   It's up to the validation function to decide what a systemic error is, but
   it can be anything that should stop not just record processing but also the
@@ -17,7 +36,7 @@ class ConfigurationError(ValueError):
   """
   error_code = protos.ProcessingLog.OTHER_CONFIGURATION_ERROR
 
-class ValidationError(ValueError):
+class ValidationError(RivoliError, ValueError):
   """ A validation error concerns a specific Field or Record.
   Validation errors are the most likely error raised during field processing.
   Validation errors do not automatically get retried since the value should
@@ -25,20 +44,21 @@ class ValidationError(ValueError):
   """
   error_code = protos.ProcessingLog.OTHER_VALIDATION_ERROR
 
-class ExecutionError(RuntimeError):
+class ExecutionError(RivoliError, RuntimeError):
   """ An execution error concerns a Field or Record but unrelated to its value.
   An execution error is usually a transient error while attempting to validate,
   modify, or process and *may* be auto-retriable. An example is an API error,
   while an API timeout may cause the error to be retriable.
   """
-  def __init__(self, msg: str,
-      error_code: t.Union['protos.ProcessingLog.ErrorCode', int] =
-        protos.ProcessingLog.OTHER_EXECUTION_ERROR,
-      auto_retry: bool = False) -> None:
-    super().__init__(msg)
+  error_code = protos.ProcessingLog.OTHER_EXECUTION_ERROR
 
-    self.error_code = error_code
+  def __init__(self, msg: str, auto_retry: bool = False,
+      http_response: t.Optional[requests.Response] = None,
+      **kwargs: t.Any) -> None:
+    super().__init__(msg, **kwargs)
+
     self.auto_retry = auto_retry
+    self.http_response = http_response
 
 def raise_config_error(
     python_exceptions: tuple[t.Type[Exception]] = (KeyError, )):
@@ -54,6 +74,6 @@ def raise_config_error(
                'This is likely a configuration error.')
         raise ConfigurationError(msg) # pylint: disable=raise-missing-from
 
-    return wrapped_f # pyright: reportGeneralTypeIssues=false
+    return wrapped_f # pyright: ignore[reportGeneralTypeIssues]
 
   return wrapped
