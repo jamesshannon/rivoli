@@ -95,7 +95,7 @@ message Record {
 
   string sharedKey = 11;
 
-  // should be a oneof, but oneof's don't allIow repeated fields
+  // should be a oneof, but oneof's don't allow repeated fields
   string rawLine = 6;
   repeated string rawColumns = 7;
 
@@ -172,6 +172,7 @@ message ProcessingLog {
   ErrorCode errorCode = 3;
 
   uint32 time = 4;
+  string summary = 10;
   string message = 5;
 
   string field = 6;

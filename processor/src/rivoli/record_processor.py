@@ -59,14 +59,9 @@ class RecordProcessor(abc.ABC):
         self.file.status = self._success_status
 
     except Exception as exc: # pylint: disable=broad-exception-caught
-      error_code = getattr(exc, 'error_code',
-                           protos.ProcessingLog.ERRORCODE_UNKNOWN)
-      log = self._make_log_entry(True, f'{exc.__class__.__name__}: {str(exc)}',
-          error_code, stackTrace=traceback.format_exc())
-
+      log = self._make_exc_log_entry(exc)
       self.file.log.append(log)
       self.file.recentErrors.append(log)
-
 
       if isinstance(exc, (exceptions.ConfigurationError, )):
         # ConfigurationErrors are "expected" errors and not indicative of
@@ -263,6 +258,37 @@ class RecordProcessor(abc.ABC):
       **kwargs
     )
 
+  def _make_exc_log_entry(self, exc: Exception, **kwargs: t.Any):
+    """ Create a log entry from an exception. """
+    classname = exc.__class__.__name__
+    summary = str(getattr(exc, 'summary', ''))
+    message = f'{classname}: {exc}'
+    error_code = getattr(exc, 'error_code',
+                         protos.ProcessingLog.ERRORCODE_UNKNOWN)
+
+    # Only include the stack trace if it's an "unexpected" error. RivoliErrors
+    # are expected validation-related errors.
+    # RivoliErrors also tend to be intentionally crafted. If a summary isn't
+    # provided then defer to the message. OTOH, system exceptions can have a
+    # lot of noise in the exception message so we use the classname.
+    stack_trace = None
+    if isinstance(exc, exceptions.RivoliError):
+      summary = summary or message
+    else:
+      summary = summary or classname
+      stack_trace = traceback.format_exc()
+
+    return protos.ProcessingLog(
+      source=self.log_source,
+      level=protos.ProcessingLog.ERROR,
+      errorCode=error_code,
+      time=bson_format.now(),
+      summary=summary,
+      message=message,
+      stackTrace=stack_trace,
+      **kwargs
+    )
+
 
 class DbChunkProcessor(RecordProcessor):
   """ Abstract class to handle processing database records in chunks. """
@@ -429,11 +455,7 @@ class DbChunkProcessor(RecordProcessor):
             raise exc
 
           # Make a record update and add it to the updates queue
-          error_code = getattr(exc, 'error_code',
-                              protos.ProcessingLog.ERRORCODE_UNKNOWN)
-          log = self._make_log_entry(True,
-              f'{exc.__class__.__name__}: {str(exc)}',
-              error_code, stackTrace=traceback.format_exc())
+          log = self._make_exc_log_entry(exc)
 
           record.status = self._record_error_status
           record.log.append(log)

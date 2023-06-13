@@ -248,13 +248,8 @@ class Validator(record_processor.DbChunkProcessor):
       return result
 
     except Exception as exc:
-      error_code = getattr(exc, 'error_code',
-                           protos.ProcessingLog.ERRORCODE_UNKNOWN)
-
-      log = self._make_log_entry(True, str(exc), field=field_name,
-          functionId=validator.id, error_code=error_code)
-      exc.record_updated = True
-      self.errors.append(log)
+      self.errors.append(self._make_exc_log_entry(exc, field=field_name,
+                                                  functionId=validator.id))
 
       if isinstance(exc, exceptions.ValidationError):
         self.file.stats.validationErrors += 1
