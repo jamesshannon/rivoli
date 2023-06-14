@@ -30,8 +30,11 @@ message FileType {
 
   map<string, string> staticTags = 11;
 
+  // these should be deprecated
   bool hasHeader = 14;
   string delimitedSeparator = 16;
+
+  FileFormat fileFormat = 18;
 
   // how to model this? basically just a link
   RequireReview requireUploadReview = 9;
@@ -62,8 +65,15 @@ message FileType {
     ALWAYS = 2;
   }
 
+  message FileFormat {
+    oneof format {
+      DelimitedFileFormat delimited = 1;
+      bool fixedWidth = 2;
+    }
+  }
+
   message DelimitedFileFormat {
-    string hasHeader = 1;
+    bool hasHeader = 1;
     string delimiter = 2;
   }
 
@@ -109,12 +119,17 @@ message FieldType {
   FunctionConfig renderer = 10;
 
   oneof field_location {
-    string charRange = 5; // For fixed-length files
+    FixedWidthFieldRange charRange = 5; // For fixed-width files
     string headerColumn = 6; // For delimited files with headers
     int32 columnIndex = 7; // For delimited files without headers
   }
 
   repeated FunctionConfig validations = 8;
+}
+
+message FixedWidthFieldRange {
+  uint32 start = 1;
+  uint32 end = 2;
 }
 
 message FunctionConfig {
