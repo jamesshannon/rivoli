@@ -21,6 +21,8 @@ from rivoli.function_helpers import helpers
 
 # pylint: disable=too-few-public-methods
 
+FieldList = list[t.Tuple[t.Tuple[int, int], str]]
+
 @tasks.app.task
 def parse(file_id: int) -> None:
   """ Parse a file that's already been loaded into the db. """
@@ -49,6 +51,23 @@ class Parser(record_processor.DbChunkProcessor):
 
   _step_stat_prefix = 'PARSE'
 
+  def __init__(self, file: protos.File, partner: protos.Partner,
+      filetype: protos.FileType) -> None:
+    super().__init__(file, partner, filetype)
+
+    self.shared_keys: dict[int, list[str]] = {}
+    """ Shared Keys by RecordType ID.
+    Shared keys are used to look up matching records in the aggregation step.
+    """
+
+  def _close_processing(self) -> None:
+    """ Close the file object and update the db File fields. """
+    self.file.times.parsingEndTime = bson_format.now()
+
+    self._update_file(
+      ['headerColumns', 'parsedColumns', 'status', 'stats', 'times', 'log',
+       'recentErrors'])
+
 class DelimitedParser(Parser):
   """ Delimited file parser """
   def __init__(self, file: protos.File, partner: protos.Partner,
@@ -56,13 +75,10 @@ class DelimitedParser(Parser):
     super().__init__(file, partner, filetype)
 
     self.fieldnames: dict[int, list[t.Optional[str]]] = {}
-    """ Fieldnames by RecordType ID.
-    Not all headers will have an associated field and fieldname, in which
-    case the list needs to have None placeholder for each field.
-    """
-    self.shared_keys: dict[int, list[str]] = {}
-    """ Shared Keys by RecordType ID.
-    Shared keys are used to look up matching records in the aggregation step.
+    """ Fieldnames by RecordType ID, indexed by position.
+    Not all headers will have an associated field and fieldname; we don't care
+    if the file has extra columns which aren't defined. In this case the list
+    needs to have None placeholder for each field.
     """
 
   def _process(self):
@@ -164,10 +180,75 @@ class DelimitedParser(Parser):
     self.file.stats.parsedRecordsSuccess += 1
     return self._make_update(record, ['parsedFields', 'status', 'sharedKey'])
 
-  def _close_processing(self) -> None:
-    """ Close the file object and update the db File fields. """
-    self.file.times.parsingEndTime = bson_format.now()
 
-    self._update_file(
-      ['headerColumns', 'parsedColumns', 'status', 'stats', 'times', 'log',
-       'recentErrors'])
+class FixedWidthParser(Parser):
+  """ Fixed-width field parser. """
+  def __init__(self, file: protos.File, partner: protos.Partner,
+      filetype: protos.FileType) -> None:
+    super().__init__(file, partner, filetype)
+
+    self.fields = self._create_recordtype_fields(self.filetype.recordTypes)
+    """ Field Tuples by RecordType ID.
+    Not all lines will have all fields "populated.
+    """
+
+    # process method
+    # Common  process method stuff
+
+  def _process(self):
+    pass
+
+  def _create_recordtype_fields(self, recordtypes: t.Sequence[protos.RecordType]
+      ) -> dict[int, FieldList]:
+    """ Create the dict of fields keyed by recordtype id.
+    Fields are represented by a tuple with a start-end tuple and the field name
+    """
+    fields: dict[int, FieldList] = {}
+
+    # A dict keyed by start-end would be the most consistent but that key
+    # doesn't serve any purpose. Flipping it and using the field name as the key
+    # isn't any better.
+    # Maybe just a tuple with ((start, end), field) which means the list is keyed
+    # by unused index
+    for recordtype in recordtypes:
+      # Start and End are stored as 1-based inclusive. We need to convert them
+      # to be compatible with Python slicing
+      fields[recordtype.id] = [
+          ((field.charRange.start - 1 , field.charRange.end), field.name)
+          for field in recordtype.fieldTypes if field.active]
+
+    return fields
+
+  def _parse_fields(self, line: str,
+      fields: FieldList) -> dict[str, str]:
+    """ Parse fields from the "line" string and return field-name keyed dict
+    Takes the recordtype-specific list of fields.
+    Values are stripped of whitespace and non-existent values (where the index
+    is outside of the string length will be empty strings).
+    """
+    return {f[1]: line[f[0][0] : f[0][1]].strip() for f in fields}
+
+  def _process_record(self, records: list[helpers.Record]
+      ) -> t.Optional[t.Union[pymongo.UpdateOne, pymongo.UpdateMany]]:
+    assert len(records) == 1
+    record = records[0].updated_record
+
+    # Parent class' pre-processing confirmed that the record type is in the
+    # self.recordtypes_map. We need it in self.fields, but we assume
+    # they're equivalent
+
+    #shared_keys = self.shared_keys[record.recordType]
+    shared_keys: list[str] = []
+
+    parsed = self._parse_fields(record.rawLine, self.fields[record.recordType])
+
+    # We don't support extra fields or default values
+    record.parsedFields.update(parsed)
+    self._get_step_stat(record.recordType).success += 1
+    record.status = protos.Record.PARSED
+
+    if shared_keys:
+      record.sharedKey = '++'.join(parsed[key] for key in shared_keys)
+
+    self.file.stats.parsedRecordsSuccess += 1
+    return self._make_update(record, ['parsedFields', 'status', 'sharedKey'])
