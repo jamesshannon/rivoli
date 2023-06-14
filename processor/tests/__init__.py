@@ -1,9 +1,16 @@
 import pathlib
+from unittest import mock
 
 from rivoli import protos
 
 TEST_FILES_DIR = str(pathlib.Path(__file__).parent / 'test_files')
 
+# pyright: reportPrivateUsage=false
+
+def get_mock_calls_by_name(mocked_calls: mock._CallList,
+    name: str) -> list[mock._Call]:
+  """ Return all mock calls with given function name. """
+  return [call for call in mocked_calls if call[0] == name]
 
 def get_mock_file() -> protos.File:
   """ Return a File. """
