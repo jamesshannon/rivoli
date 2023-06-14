@@ -187,6 +187,8 @@ function renderLogList(logs: Array<any>) {
 export function makeExpandedRow(data: any): string {
   const lines = [];
   if (data.rawColumns) {
+    lines.push(`Record #: ${data.id}`);
+
     lines.push(
       '<div><h5>Raw Columns</h5><pre>' +
         data.rawColumns

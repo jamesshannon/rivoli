@@ -77,6 +77,8 @@
 
   let config = {
     paging: true,
+    pageLength: 20,
+    lengthMenu: [10, 20, 50, 100, 1000],
     searching: true,
     ordering: false,
     //serverSide: true,
@@ -88,7 +90,7 @@
     columns: [
       {
         title: 'File',
-        data: 'id',
+        data: 'name',
         render: renderFileName
       },
       {
