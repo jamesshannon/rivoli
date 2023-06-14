@@ -40,6 +40,10 @@ class RecordProcessor(abc.ABC):
     self.record_prefix: int = self.file.id << 32
     """ 32-bit-shifted File ID """
 
+    # Update batching
+    self._max_pending_updates = 1000
+    """ Max updates to queue for writing to mongodb. """
+
     self.db = db.get_db() # pylint: disable=invalid-name
 
   def process(self):
@@ -313,10 +317,6 @@ class DbChunkProcessor(RecordProcessor):
     """ True to force processing of records. """
     self._is_batch_mode = False
     """ If this processing is being done in batch mode. """
-
-    # Update batching
-    self._max_pending_updates = 1000
-    """ Max updates to queue for writing to mongodb. """
 
   def _set_max_pending_records(self, max_records: t.Optional[int]) -> None:
     """ Set the max records to process at once. Recalcs max_pending_updates.
