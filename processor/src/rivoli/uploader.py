@@ -94,7 +94,7 @@ class RecordUploader(record_processor.DbChunkProcessor):
       kwargs['sort'] = [(f'validatedFields.{self._groupby_field}', 1)]
 
     self._process_records(
-        self._get_all_records(protos.Record.VALIDATED, True, **kwargs))
+        self._get_all_records(protos.Record.VALIDATED, False, **kwargs))
 
     self._end_upload()
 
