@@ -11,19 +11,23 @@ TCallable = t.TypeVar("TCallable", bound=t.Callable[[t.Any], t.Any])
 class RivoliError:
   error_code: t.Union['protos.ProcessingLog.ErrorCode', int] = 0
   summary: str = ''
+  auto_retry: bool = False
+  http_response: t.Optional[requests.Response] = None
   api_log_id: t.Optional[str] = None
 
   def __init__(self, *args: t.Any, **kwargs: t.Any):
-    error_code = kwargs.pop('error_code', None)
-    summary = kwargs.pop('summary', None)
+    """ Shared RivoliError initialization. """
 
-    super().__init__(*args, **kwargs)
+    def _set_from_kwargs(prop: str) -> None:
+      """ Helper to set properties from kwargs. """
+      val = kwargs.pop(prop, None)
+      if val is not None:
+        setattr(self, prop, val)
 
-    if error_code:
-      self.error_code = error_code
-
-    if summary:
-      self.summary = summary
+    _set_from_kwargs('error_code')
+    _set_from_kwargs('summary')
+    _set_from_kwargs('auto_retry')
+    _set_from_kwargs('http_response')
 
 class ConfigurationError(RivoliError, ValueError):
   """ A configuration error is systemic and fatal. Stops file processing.
@@ -51,14 +55,6 @@ class ExecutionError(RivoliError, RuntimeError):
   while an API timeout may cause the error to be retriable.
   """
   error_code = protos.ProcessingLog.OTHER_EXECUTION_ERROR
-
-  def __init__(self, msg: str, auto_retry: bool = False,
-      http_response: t.Optional[requests.Response] = None,
-      **kwargs: t.Any) -> None:
-    super().__init__(msg, **kwargs)
-
-    self.auto_retry = auto_retry
-    self.http_response = http_response
 
 def raise_config_error(
     python_exceptions: tuple[t.Type[Exception]] = (KeyError, )):
