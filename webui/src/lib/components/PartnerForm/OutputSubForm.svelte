@@ -107,5 +107,11 @@
         />
       </Column>
     </Row>
+    <Row>
+      <Column>
+        Failed Functions:
+        {output.configuration.failedFunctionConfigs}
+      </Column>
+    </Row>
   </FormGroup>
 </Grid>

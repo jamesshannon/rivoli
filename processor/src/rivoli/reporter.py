@@ -173,6 +173,18 @@ class Reporter(record_processor.DbChunkProcessor):
       filter_['status'] = {
           '$in': list(self._report_config.configuration.recordStatuses)}
 
+    # Filter based on Recent Errors list
+    if self._report_config.configuration.failedFunctionConfigs:
+      # NB: This filters on the functionId and not the function instance id.
+      # This might be desirable, but might cause problems if functions get
+      # re-used
+      filter_['recentErrors'] = {
+        '$elemMatch': {
+            'functionId': { '$in':
+                list(self._report_config.configuration.failedFunctionConfigs) }
+        }
+      }
+
     self._process_records(self._get_some_records(filter_))
 
     # Done. Add a log entry.
