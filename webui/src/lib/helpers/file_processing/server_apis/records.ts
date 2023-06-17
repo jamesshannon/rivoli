@@ -86,7 +86,7 @@ export async function getRequestRecords(
 export async function handlePostRequestRevertRecords(
   fileId: number,
   reqBody: any
-): Promise<{ [key: string]: string }> {
+): Promise<{ [key: string]: any }> {
   // this handles downgrading status to re-run uploads
   const toRecordStatus = parseInt(reqBody.toStatus);
   const toRecordStatusName = Record_Status[toRecordStatus];
@@ -94,10 +94,16 @@ export async function handlePostRequestRevertRecords(
   const [filter, _] = makeMongoRecordSearchFilter(fileId, reqBody);
 
   if (!filter.status || !REVERTABLE_MAP.get(filter.status)) {
-    // better error handling
-    return { status: 'error1' };
+    return {
+        status: 'error',
+        data: { message: 'The current status does not support reverting.' }
+    };
   } else if (filter.status <= toRecordStatus) {
-    return { status: 'error2' };
+    return {
+        status: 'error',
+        data: { message: 'The revert-to status is not supported for the ' +
+                         'current status.' }
+    };
   }
 
   const toFileStatus = revertStatusMap.get(toRecordStatus);
@@ -137,5 +143,8 @@ export async function handlePostRequestRevertRecords(
   // rather than try to recreate
   createTask('rivoli.status_scheduler', 'next_step_id', fileId);
 
-  return { status: 'success' };
+  return {
+      status: 'success',
+      data: { message: 'Records reverted and next step scheduled.' }
+    };
 }

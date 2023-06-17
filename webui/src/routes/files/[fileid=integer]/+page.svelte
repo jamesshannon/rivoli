@@ -20,6 +20,7 @@
   import { Function } from '$lib/rivoli/protos/functions_pb';
   import { File_Status, File } from '$lib/rivoli/protos/processing_pb';
 
+  import Notification from '$lib/components/Notification.svelte';
   import Details from '$lib/components/FileProcessing/Details.svelte';
   import Outputs from '$lib/components/FileProcessing/Outputs.svelte';
   import RecordsTable from '$lib/components/FileProcessing/RecordsTable.svelte';
@@ -54,10 +55,7 @@
 
   let recordsTableInstance: any;
   let selectedTabIdx = 0;
-
-  onMount(() => {
-    refreshFile();
-  });
+  let notificationElement: Notification;
 
   function refreshFile(timeout_ms?: number) {
     const refresh_time =
@@ -83,7 +81,7 @@
     });
 
     const response = await resp.json();
-    alert(JSON.stringify(response));
+    notificationElement.showNotification(response);
 
     // force refresh of File
     refreshFile(1_000);
@@ -125,14 +123,20 @@
       res = resolve;
     }
   );
+
+  onMount(() => {
+    refreshFile();
+  });
 </script>
+
+<Notification bind:this={notificationElement} />
 
 <Breadcrumb noTrailingSlash>
   <BreadcrumbItem href="/">Home</BreadcrumbItem>
   <BreadcrumbItem href="/files">File Processing</BreadcrumbItem>
-  <BreadcrumbItem href="/files/{file.id}" isCurrentPage
-    >{file.name}</BreadcrumbItem
-  >
+  <BreadcrumbItem
+   href="/files/{file.id}"
+   isCurrentPage>{file.name}</BreadcrumbItem>
 </Breadcrumb>
 
 <br /><br />
