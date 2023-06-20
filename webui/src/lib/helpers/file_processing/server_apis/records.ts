@@ -10,10 +10,9 @@ import {
   Record_Status
 } from '$lib/rivoli/protos/processing_pb';
 import {
-  makeMongoRecordIdBaseFilter,
-  makeMongoRecordSearchFilter,
+  makeRecordFilterPipeline,
+  makeRecordStatusFilter,
   REVERTABLE_MAP,
-  type SearchParams
 } from '$lib/helpers/file_processing/records';
 
 // Map Record status to File Status to determine which status to set
@@ -24,56 +23,22 @@ const revertStatusMap = new Map([
   [Record_Status.VALIDATED, File_Status.VALIDATED]
 ]);
 
-export async function handleGetRequestOutputRecords(
-  fileId: string,
-  reqParams: SearchParams,
-  outputInstId: string
-) {
-  // need to generate a count for this particular filter
-  // {_id: {$gte: 219043330000}, recentErrors: {$elemMatch: {functionId: {$in: ["b921aea76104d6682dc2c636", "f829ef7b9e58b6d54b712e77"]}}}}
-  //
-
-  const params = {
-    ...reqParams,
-    ...{recentErrors: ["b921aea76104d6682dc2c636"]}};
-  const [filter, options] = makeMongoRecordSearchFilter(fileId, params);
-
-  console.log(filter, options);
-
-  const countCursor = db
-    .collection('records')
-    .aggregate([
-      { $match: filter },
-      { $project: { status: 1 } },
-      { $count: 'count' }
-    ]);
-  const countP = getEntitiesList(countCursor);
-
-  const recordsCursor = db.collection('records').find(filter, options);
-  const recordsP = getEntitiesList<Record>(recordsCursor);
-
-  return json({records: await recordsP, count: (await countP)[0].count});
-
-}
-
 export async function getRequestRecords(
   fileId: string,
   reqParams: { [k: string]: string }
 ) {
-  // Begin the aggregation counting with the "base" filter
   const countCursor = db
     .collection('records')
     .aggregate([
-      { $match: makeMongoRecordIdBaseFilter(fileId)[0] },
+      ...makeRecordFilterPipeline(fileId, reqParams, true),
       { $project: { status: 1 } },
       { $group: { _id: '$status', count: { $count: {} } } }
     ]);
   const countP = getEntitiesList(countCursor);
 
-  const [filter, options] = makeMongoRecordSearchFilter(fileId, reqParams);
-
   // Begin the scan for the batch of records
-  const recordsCursor = db.collection('records').find(filter, options);
+  const recordsCursor = db.collection('records').aggregate(
+      makeRecordFilterPipeline(fileId, reqParams));
   const recordsP = getEntitiesList<Record>(recordsCursor);
 
   const statusCounts: Map<string, number> = Object.fromEntries(
@@ -88,17 +53,16 @@ export async function handlePostRequestRevertRecords(
   reqBody: any
 ): Promise<{ [key: string]: any }> {
   // this handles downgrading status to re-run uploads
+  const statusId = Number(reqBody.status);
   const toRecordStatus = parseInt(reqBody.toStatus);
   const toRecordStatusName = Record_Status[toRecordStatus];
 
-  const [filter, _] = makeMongoRecordSearchFilter(fileId, reqBody);
-
-  if (!filter.status || !REVERTABLE_MAP.get(filter.status)) {
+  if (!statusId || !REVERTABLE_MAP.get(statusId)) {
     return {
         status: 'error',
         data: { message: 'The current status does not support reverting.' }
     };
-  } else if (filter.status <= toRecordStatus) {
+  } else if (statusId <= toRecordStatus) {
     return {
         status: 'error',
         data: { message: 'The revert-to status is not supported for the ' +
@@ -106,6 +70,7 @@ export async function handlePostRequestRevertRecords(
     };
   }
 
+  const filter = makeRecordStatusFilter(fileId, statusId);
   const toFileStatus = revertStatusMap.get(toRecordStatus);
   const log = makeLogMsg(`Reverted status to ${toRecordStatusName}`);
 
@@ -127,7 +92,8 @@ export async function handlePostRequestRevertRecords(
 
   // Update the file
   const modified = resp.modifiedCount;
-  log.message = `Reverted record status to ${toRecordStatusName} on ${modified} records`;
+  log.message = `Reverted record status to ${toRecordStatusName} on ' +
+      '${modified} records`;
   db.collection('files').updateOne(
     { _id: fileId },
     {

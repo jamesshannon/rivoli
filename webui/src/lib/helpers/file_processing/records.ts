@@ -4,11 +4,12 @@ interface SearchParams {
   start?: number | string;
   length?: number | string;
   status?: number | string;
+  text?: string;
   recentErrors?: string[];
 }
 
 // This map defines the record statuses which are revert-able, and the
-// status(es) that those records can be reverted to.
+// status(es) to which those records can be reverted.
 // Allow reverting of record statuses when only one status is filtered and
 // that status is a PARSE_ERROR, VALIDATION_ERROR, or UPLOAD_ERROR
 export const REVERTABLE_MAP = new Map([
@@ -26,6 +27,7 @@ export const REVERTABLE_MAP = new Map([
 export class RecordsFilter {
   status: string = '';
   errorCode: string = '';
+  text: string = '';
 
   // The number of returned records for this particular filter.
   // This is "delayed" because it is set after the filter has been used to
@@ -33,7 +35,11 @@ export class RecordsFilter {
   resultCount = 0;
 
   get filterObj(): { [key: string]: string } {
-    return { status: this.status, errorCode: this.errorCode };
+    return {
+      status: this.status,
+      errorCode: this.errorCode,
+      text: this.text
+    };
   }
 
   get statusSearchString(): string {
@@ -43,50 +49,107 @@ export class RecordsFilter {
   reset() {
     this.status = '';
     this.errorCode = '';
+    this.text = '';
   }
 }
 
-export function makeMongoRecordIdBaseFilter(
-  fileId: string | number
-): [any, any] {
-  // Record ID portion is 1-based to correspond with file row numbers
-  const baseRecordId = (BigInt(fileId) << 32n) + 1n;
-  const maxRecordId = baseRecordId + ((1n << 32n) - 1n);
-
-  const filter = { _id: { $gte: baseRecordId, $lte: maxRecordId } };
-  const options: any = { sort: { _id: 1 } };
-  return [filter, options];
+function escapeRegex(str: string) {
+  return str.replace(/[/\-\\^$*+?.()|[\]{}]/g, '\\$&');
 }
 
-export function makeMongoRecordSearchFilter(
-  fileId: string | number,
-  params: SearchParams
-): [any, any] {
-  const [filter, options] = makeMongoRecordIdBaseFilter(fileId);
+function recordIds(fileId: string | number): [bigint, bigint] {
+  // Record ID is 1-based to correspond with file row numbers
+  const startId = (BigInt(fileId) << 32n) + 1n;
+  return [startId, startId + ((1n << 32n) - 1n)];
+}
 
-  // Offset (paging)
-  // If there are no filters then the offset can be done with math (using the
-  // recordId), but the existence of any filters requires setting the `skip`
-  // option and having Mongo iterate through all the records
-  const startOffset = Number(params.start) || 0;
-  options.limit = Number(params.length) || 10;
+export function makeRecordFilterPipeline(fileId: string | number,
+    params: SearchParams, aggStatuses = false): {[key: string]: any}[] {
+  const stages = [];
 
-  if (params.status) {
-    filter.status = Number(params.status);
-    //filter.status = { $in: params.status };
-    options.skip = startOffset;
+  let [startRecordId, maxRecordId] = recordIds(fileId);
+
+  // Skipping is based on whether or not filters are applied
+  let isFiltered = false;
+
+  // Mongodb optimizes multiple $match stages into a single stage so all $match
+  // stages should be done at the same time, and they should be done as early
+  // as possible.
+  // The most fundamental $match filter is the record id range, but the details
+  // of that will depend on whether filters are applied, so the record id $match
+  // is created at the end but will be prepended to the stages array.
+
+  // Status filter
+  if (params.status && ! aggStatuses) {
+    isFiltered = true;
+    stages.push({ $match: { status: Number(params.status) } });
   }
 
+  // Recent Errors filters for the function ID(s) of any recent error
   if (params.recentErrors) {
-    filter.recentErrors = {
-      $elemMatch: { functionId: { $in: params.recentErrors } }
-    };
-    options.skip = startOffset;
+    isFiltered = true;
+
+    stages.push({ $match: { recentErrors:
+      { $elemMatch: { functionId: { $in: params.recentErrors } } } } });
   }
 
-  if (options.skip === undefined) {
-    filter._id.$gte = filter._id.$gte + BigInt(startOffset);
+  // Text filter is a partial string match for any field value or recent error
+  // message. Matching on arbitrary field values requires converting the field
+  // object to an array in one stage and then matching in a later stage.
+  if (params.text) {
+    isFiltered = true;
+    // Partial string case-insensitive match
+    const filter = { $regex: escapeRegex(params.text), $options: 'i' };
+
+    stages.push({ $set: {
+      parsedFieldArray: { $objectToArray: "$parsedFields" },
+      validatedFieldArray: { $objectToArray: "$validatedFields" }
+    }});
+    stages.push({ $match: { $or: [
+      { 'parsedFieldArray.v': filter },
+      { 'validatedFieldArray.v': filter },
+      { 'recentErrors': { $elemMatch: { message: filter } } },
+    ]}});
   }
 
-  return [filter, options];
+  // Sort the records by the Record ID (which is also row order)
+  // This doesn't affect the status aggregation query; it's not necessary, but
+  // appears to get optimized out.
+  stages.push({ $sort: { _id: 1 } });
+
+  // Record ID Filtering & Skipping
+  const startOffset = Number(params.start) || 0;
+  if (aggStatuses) {
+    // Aggregating Status Counts -- don't "skip" at all
+  } else if (! isFiltered) {
+    // Simple Case -- no filtering has happened so we can skip with math
+    startRecordId = startRecordId + BigInt(startOffset);
+  } else if (startOffset > 0) {
+    // If we're filtering then we need to skip with a $skip stage after the
+    // $match stage(s).
+    stages.push({ $skip: startOffset });
+  }
+
+  // Add the record ID $match stage to the very beginning.
+  stages.unshift(
+      { $match: { _id: { $gte: startRecordId, $lte: maxRecordId } } });
+
+  // Add the limit stage to the end if we're not aggregating the statuses
+  if (! aggStatuses) {
+    stages.push({ $limit: Number(params.length) || 10 });
+  }
+
+  return stages;
+}
+
+export function makeRecordStatusFilter(fileId: string | number,
+    statusId: number): {[key: string]: any} {
+  // A status filter is a filter (not an aggregation pipeline) which only
+  // filters for a particular file (based on record ID) and the Status ID
+  const [startRecordId, maxRecordId] = recordIds(fileId);
+
+  return {
+    _id: { $gte: startRecordId, $lte: maxRecordId },
+    status: statusId
+  };
 }

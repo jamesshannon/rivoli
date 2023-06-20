@@ -58,7 +58,11 @@ const configDefault: StringMap = {
   paging: true,
   pageLength: 10,
   searching: true,
-  dom: 'rt<"controls"ilp>', // hide the search box
+  //searchDelay: 400,
+  search: {
+    return: true,
+  },
+  dom: 'rft<"controls"ilp>', // hide the search box
   ordering: false,
   serverSide: true,
   deferRender: true,

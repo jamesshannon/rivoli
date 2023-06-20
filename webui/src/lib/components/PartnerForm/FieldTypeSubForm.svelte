@@ -60,7 +60,10 @@
   <Grid>
     <Row>
       <Column>
-        <TextInput labelText="Field Name" bind:value={fieldtype.name} />
+        <TextInput
+          labelText="Field Name"
+          helperText="UPPER_CASE format"
+          bind:value={fieldtype.name} />
       </Column>
       <Column>
         <Checkbox labelText="Active" bind:checked={fieldtype.active} />
