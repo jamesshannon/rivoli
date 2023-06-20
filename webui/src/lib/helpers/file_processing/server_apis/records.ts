@@ -45,7 +45,10 @@ export async function getRequestRecords(
     (await countP).map((s) => [s.id, s.count])
   );
 
-  return json({ records: await recordsP, statusCounts: statusCounts });
+  return json({
+    status: 'success',
+    data: { records: await recordsP, statusCounts: statusCounts }
+  });
 }
 
 export async function handlePostRequestRevertRecords(

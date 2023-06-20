@@ -100,21 +100,14 @@
   }
 
   async function revertRecordStatuses(evt: CustomEvent) {
-    const resp = await fetch($page.url.pathname, {
-      method: 'POST',
-      body: JSON.stringify({
+    doFileAction({
         action: 'REVERT_RECORDS',
         toStatus: evt.detail.revertToId,
         ...evt.detail.filter.filterObj
-      })
-    });
-
-    const response = await resp.json();
+      });
 
     recordsTableInstance.resetFilters();
     selectedTabIdx = 0;
-
-    alert(JSON.stringify(response));
   }
 
   let res;

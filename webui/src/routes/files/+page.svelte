@@ -6,24 +6,23 @@
     Breadcrumb,
     BreadcrumbItem,
     Button,
-    ComboBox,
-    Modal
   } from 'carbon-components-svelte';
 
   import Add from 'carbon-icons-svelte/lib/Add.svelte';
 
   import { SvelteDataTable } from '@mac-barrett/svelte-data-table';
-  import type { JsonValue } from '@bufbuild/protobuf';
 
   import { File_Status } from '$lib/rivoli/protos/processing_pb';
-  import { Partner, FileType } from '$lib/rivoli/protos/config_pb';
+  import { Partner } from '$lib/rivoli/protos/config_pb';
 
+  import Notification from '$lib/components/Notification.svelte';
   import Upload from '$lib/components/FileProcessing/Upload.svelte';
 
   export let data: PageData;
   const partnerMap = new Map(data.partners.map(p => [p.id, Partner.fromJson(p as any)]));
 
   let modalOpen = false;
+  let notificationElement: Notification;
 
   const filetypeMap = new Map(
     Array.from(partnerMap.values()).flatMap((p) =>
@@ -59,19 +58,19 @@
     return data;
   }
 
-  function renderPartnerName(data, type: string, row) {
+  function renderPartnerName(_, type: string, row) {
     return `<a href="/partners/${row.partnerId}">${
       partnerMap.get(row.partnerId).name
     }</a>`;
   }
 
-  function renderFileTypeName(data, type: string, row) {
+  function renderFileTypeName(_, type: string, row) {
     return `<a href="/partners/${row.partnerId}/filetypes/${row.fileTypeId}">${
-      filetypeMap.get(row.fileTypeId).name
+      filetypeMap.get(row.fileTypeId)!.name
     }</a>`;
   }
 
-  function renderStatus(data, type: string, row) {
+  function renderStatus(_, type: string, row) {
     return File_Status[row.status] || '';
   }
 
@@ -121,7 +120,7 @@
     ]
   };
 
-  function uploadFile(evt: CustomEvent) {
+  async function uploadFile(evt: CustomEvent) {
     console.log(evt.detail);
     let formData = new FormData();
 
@@ -129,11 +128,13 @@
     formData.append('partnerId', evt.detail.partnerId);
     formData.append('filetypeId', evt.detail.filetypeId);
 
-    console.log(formData);
-
-    fetch($page.url.pathname, { method: 'POST', body: formData });
+    const resp = await fetch(
+        $page.url.pathname, { method: 'POST', body: formData });
+    notificationElement.showNotification(resp);
   }
 </script>
+
+<Notification bind:this={notificationElement} />
 
 <Breadcrumb noTrailingSlash>
   <BreadcrumbItem href="/">Home</BreadcrumbItem>

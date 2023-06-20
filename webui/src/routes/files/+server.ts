@@ -39,5 +39,8 @@ export async function POST({ request }) {
     formData.get('filetypeId')
   );
 
-  return json({ status: 'success' });
+  return json({
+    status: 'success',
+    data: { message: 'File uploaded and scheduled copy.' }
+  });
 }
