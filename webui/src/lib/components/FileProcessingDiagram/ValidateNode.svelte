@@ -29,9 +29,7 @@
       keyItems.push(node.field.id);
     }
     keyItems.push(node.cfg.id);
-    key = keyItems.join('.');
-
-    console.log(key);
+    key = keyItems.join(':');
   }
 
   $: stepStat = key ? file?.stats?.steps[key] : undefined;

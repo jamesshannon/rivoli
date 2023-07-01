@@ -215,6 +215,15 @@ class RecordProcessor(abc.ABC):
       if any(key.startswith(step_prefix) for step_prefix in step_prefixes):
         del self.file.stats.steps[key]
 
+  def _get_step_stat_key(self, *args: t.Any) -> str:
+    """ Get the StepStat key for this particular step.
+    *args is any additional arbitrary string(s) that are added at end and
+    separated by .'s.
+    """
+    prefix = self._step_stat_prefix or ''
+    # If prefix is None then an empty string will cause a leading _
+    return ':'.join([prefix] + [str(x) for x in args]).lstrip(':')
+
   def _get_step_stat(self, *args: t.Any) -> protos.StepStats:
     """ Get the StepStat for this particular step.
     *args is any additional arbitrary string(s) that are added at end and
@@ -223,13 +232,11 @@ class RecordProcessor(abc.ABC):
     If _step_stat_prefix is empty (the default) then we return a "disconnected"
     instance of a StepStat. This makes it easier for shared RecordProcessor
     code not use StepStats without a lot of logic.
-
     """
     if not self._step_stat_prefix:
       return protos.StepStats()
 
-    key = '.'.join([self._step_stat_prefix] + [str(x) for x in args])
-    return self.file.stats.steps[key]
+    return self.file.stats.steps[self._get_step_stat_key(*args)]
 
   def _get_regexp_matching_record(self, text: str,
         records: t.Sequence[protos.RecordType],
