@@ -1,6 +1,8 @@
 syntax = "proto3";
 package rivoli.protos.processing;
 
+import "google/protobuf/timestamp.proto";
+
 message File {
   // This is a 4-btye (sequential) integer so that it can be used as part of
   // the (optimized) Record ID.
@@ -224,6 +226,7 @@ message ProcessingLog {
 
 message ApiLog {
   string id = 1;
+  google.protobuf.Timestamp timestamp = 5;
 
   bool dryrun = 2;
   Request request = 3;

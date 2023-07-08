@@ -42,6 +42,12 @@ def make_request(method: str, url: str, **kwargs: t.Any) -> t.Any:
           timeout=timeout
       )
   )
+  # How to handle expiration and deletion?
+  # Mongodb offers a TTL index and a capped collection, both of which serve to
+  # auto-delete documents. But records may have references to log entries.
+  # Without a (much) more complicated deletion strategy then those references
+  # will become orphaned.
+  apilog.timestamp.GetCurrentTime()
 
   if 'json' in kwargs:
     apilog.request.body = json.dumps(kwargs['json'])
