@@ -4,6 +4,7 @@ import csv
 import datetime
 import io
 import pathlib
+import re
 import typing as t
 
 import pymongo
@@ -110,25 +111,37 @@ class Reporter(record_processor.DbChunkProcessor):
 
     root = pathlib.Path(config.get('FILES'))
 
-    self.report_path = self._make_file_path(
-        root, partner.outgoingDirectory, output.file.filePathPattern)
+    self.report_path = self._make_file_path(root, partner.outgoingDirectory,
+        output.file.filePathPattern, output.name)
 
     # Keep default db chunk size, don't batch processing
     # No chunk pre-processing necessary
     # We don't want to write back to the File, and definitely not the Records
 
   def _make_file_path(self, root: pathlib.Path, partner_base: str,
-      template: str) -> pathlib.Path:
-    """ Return a report file path made from a formatted template. """
-    now = datetime.datetime.now()
-    filename_vars: dict[str, str] = {
-      'NOW_TS': str(int(now.timestamp())),
-      'ORIG_FILE_STEM': pathlib.Path(self.file.name).stem
-    }
+      template: str, report_name: str) -> pathlib.Path:
+    """ Return a report file path.
+    Use a formatted template string if the template is provided, otherwise
+    use a default name.
+    """
+    now = int(datetime.datetime.now().timestamp())
+    now_hex = f'{now:0x}'
 
-    # Files should always be relative to the root path, and a leading / will
-    # essentially ignore the root
-    relative_path = template.format(**filename_vars).lstrip('/')
+    if template:
+      filename_vars: dict[str, str] = {
+        'NOW_TS': str(now),
+        'NOW_TS_HEX': now_hex,
+        'ORIG_FILE_STEM': pathlib.Path(self.file.name).stem
+      }
+
+      # Files should always be relative to the root path, and a leading / will
+      # essentially ignore the root
+      relative_path = template.format(**filename_vars).lstrip('/')
+    else:
+      report_name = re.sub(r'[^a-zA-Z]', '', report_name)
+      relative_path = f'{report_name}-{now_hex}.csv'
+
+
     report_path = root / partner_base.strip('/') / relative_path
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -215,7 +228,7 @@ class Reporter(record_processor.DbChunkProcessor):
     step_stat.success += 1
 
   def _close_processing(self) -> None:
-    # Do nothing
+    # TODO: This wasn't necessarily a success.
     # Update the instance message values, which are a reference to File.outputs,
     # so these get updates when outputs is updated
     self._report_instance.endTime = bson_format.now()
