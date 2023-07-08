@@ -6,7 +6,7 @@ import requests
 
 from rivoli import protos
 
-TCallable = t.TypeVar("TCallable", bound=t.Callable[[t.Any], t.Any])
+TCallable = t.TypeVar("TCallable", bound=t.Callable[..., t.Any])
 
 class RivoliError:
   error_code: t.Union['protos.ProcessingLog.ErrorCode', int] = 0
@@ -69,6 +69,23 @@ def raise_config_error(
         msg = (f'Could not find key {exc} while executing {func.__name__}.'
                'This is likely a configuration error.')
         raise ConfigurationError(msg) # pylint: disable=raise-missing-from
+
+    return wrapped_f # pyright: ignore[reportGeneralTypeIssues]
+
+  return wrapped
+
+def raise_validation_error(
+    python_exceptions: tuple[t.Type[Exception]] = (KeyError, )):
+  """ Convert specified exception types to a ValidationError """
+
+  def wrapped(func: TCallable) -> TCallable:
+    @functools.wraps(func)
+    def wrapped_f(*args: t.Any, **kwargs: t.Any) -> t.Any:
+      try:
+        return func(*args, **kwargs)
+      except python_exceptions as exc:
+        msg = f'Could not find key {exc} while executing {func.__name__}.'
+        raise ValidationError(msg) # pylint: disable=raise-missing-from
 
     return wrapped_f # pyright: ignore[reportGeneralTypeIssues]
 
