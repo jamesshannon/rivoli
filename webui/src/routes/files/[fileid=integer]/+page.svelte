@@ -163,7 +163,7 @@
     on:click={() => recordsTableInstance.resizeTable()}
   />
   <Tab label="Logs" />
-  {#if file.status >= File_Status.UPLOADED}<Tab label="Reports" />{/if}
+  <Tab label="Reports" />
 
   <svelte:fragment slot="content">
     <!-- Tab: Details -->
@@ -197,11 +197,9 @@
     </TabContent>
 
     <!-- Tab: Reports -->
-    {#if file.status >= File_Status.UPLOADED}
-      <TabContent>
-        <Outputs {file} {filetype} on:runReport={runReport} />
-      </TabContent>
-    {/if}
+    <TabContent>
+      <Outputs {file} {filetype} on:runReport={runReport} />
+    </TabContent>
   </svelte:fragment>
 </Tabs>
 
