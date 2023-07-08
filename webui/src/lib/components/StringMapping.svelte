@@ -46,7 +46,7 @@
          icon={Delete} />
       </FormGroup>
     {:else}
-      <div>There are no items</div>
+      <p>There are no items</p>
     {/each}
 
     <Button
