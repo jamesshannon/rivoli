@@ -161,7 +161,7 @@ class Loader(record_processor.RecordProcessor):
 class DelimitedLoader(Loader):
   """ Iterate through a local delimited file and create Records. """
   _has_header: bool
-  _delimiter: str
+  _detected_delimiter: str
 
   def _process(self):
     """ Load CSV rows. """
@@ -184,10 +184,10 @@ class DelimitedLoader(Loader):
     dialect = sniffer.sniff(sample)
 
     self._has_header = sniffer.has_header(sample)
-    self._delimiter = dialect.delimiter
+    self._detected_delimiter = dialect.delimiter
 
-    # should confirm dialect and has_header matches anything that's been set on
-    # the file record
+    # Regardless of the sniffed delimiter, set it to the configured delimiter
+    dialect.delimiter = self.filetype.delimitedSeparator
 
     # Create a CSV reader iterator
     reader = csv.reader(self.fileobj, dialect)
@@ -202,10 +202,13 @@ class DelimitedLoader(Loader):
           (f'Unexpected file header: Expected {_fmt(self.filetype.hasHeader)} '
            f'but found {_fmt(self._has_header)}'))
 
-    if self._delimiter != self.filetype.delimitedSeparator:
-      raise exceptions.ConfigurationError(
-          (f'Unexpected delimiter: Expected {self.filetype.delimitedSeparator} '
-           f'but found {self._delimiter}'))
+    if self._detected_delimiter != self.filetype.delimitedSeparator:
+      # We used to raise a ConfigurationError if the sniffed delimiter didn't
+      # match the configured delimiter but this caused false positives.
+      self.file.log.append(self._make_log_entry(False,
+          ('Unexpected delimiter: Expected '
+           f"'{self.filetype.delimitedSeparator}' "
+           f"but detected '{self._detected_delimiter}'")))
 
     return reader
 
@@ -215,7 +218,7 @@ class DelimitedLoader(Loader):
     values.
     """
     for row in reader:
-      yield (self._delimiter.join(row), row)
+      yield (self.filetype.delimitedSeparator.join(row), row)
 
   def _process_csv_file(self, reader: t.Iterator[list[str]]) -> None:
     """ Iterate through file rows and upload to database. """
@@ -277,6 +280,3 @@ class FixedWidthLoader(Loader):
 
     # Equivalent of _process_csv_file()
     self._create_db_records(self._raw_lines(self.fileobj))
-
-
-
