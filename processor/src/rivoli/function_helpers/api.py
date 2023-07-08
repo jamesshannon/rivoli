@@ -75,9 +75,9 @@ def make_request(method: str, url: str, **kwargs: t.Any) -> t.Any:
   try:
     resp = requests.request(method, url, timeout=timeout, **kwargs)
     resp.raise_for_status()
-  except (requests.exceptions.ConnectionError,
-          requests.exceptions.ReadTimeout,
-          requests.exceptions.HTTPError) as exc:
+    return resp.json()
+
+  except (requests.exceptions.RequestException) as exc:
     # Various requests exceptions get re-written to Rivoli exceptions with
     # appropriate handling of status codes and determination of auto-retry
     error_code: t.Union[protos.ProcessingLog.ErrorCode, int]
@@ -95,16 +95,15 @@ def make_request(method: str, url: str, **kwargs: t.Any) -> t.Any:
       error_code = exc.response.status_code
     elif isinstance(exc, requests.exceptions.ConnectionError):
       error_code = protos.ProcessingLog.CONNECTION_ERROR
-    else: # ReadTimeout
+    elif isinstance(exc, requests.exceptions.ReadTimeout):
       error_code = protos.ProcessingLog.TIMEOUT_ERROR
+    else:
+      error_code = protos.ProcessingLog.OTHER_EXECUTION_ERROR
 
     autoretry = error_code in AUTORETRY_CODES
 
     raise exceptions.ExecutionError(str(exc), auto_retry=autoretry,
         http_response=resp, error_code=error_code)
-
-  else:
-    return resp.json()
 
   finally:
     # Any error, including a non-200, generates an exception. Some will get
