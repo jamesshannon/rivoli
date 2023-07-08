@@ -1,11 +1,13 @@
 import type { File_Status, File } from '$lib/rivoli/protos/processing_pb';
 
 export function getNodeStatus(
-  file: File,
+  file: File | undefined,
   processing: File_Status,
   error: File_Status,
   complete: File_Status
 ): string {
+  if (!file) return '';
+
   if (file.status === processing) {
     return 'PROCESSING';
   } else if (file.status === error) {
