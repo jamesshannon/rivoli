@@ -67,6 +67,10 @@ def protobuf_to_dict(pb: Message,
   try:
     if pb.DESCRIPTOR.full_name == 'google.protobuf.Struct':
       return {key: pb.fields[key].string_value for key in pb.fields}
+
+    if pb.DESCRIPTOR.full_name == 'google.protobuf.Timestamp':
+      return pb.ToDatetime()
+
   except AttributeError:
     pass
 
