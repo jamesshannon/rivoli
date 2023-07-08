@@ -24,14 +24,26 @@ AUTORETRY_CODES: t.Sequence[t.Union[int, 'protos.ProcessingLog.ErrorCode']] = (
     protos.ProcessingLog.CONNECTION_ERROR, protos.ProcessingLog.TIMEOUT_ERROR)
 
 # Log requests on errors
-# Options might be HTTP_ERROR, UNEXPECTED, ALWAYS, DRYRUN
-REQUEST_LOG_CRITERIA = 'ERROR'
+# Options might be ALWAYS, POST, DRYRUN, ERROR
+REQUEST_LOG_CRITERIA = 'POST'
+
+# Limit apilog response content to 500kb
+OVERFLOW_LENGTH = 500_000
+
+def _text_overflow(text: str) -> str:
+  """ Limit string length and add a note when string is sliced. """
+  overage = len(text) - OVERFLOW_LENGTH
+  if overage > 0:
+    return f'{text[:OVERFLOW_LENGTH]}... [plus {overage} characters]'
+
+  return text
 
 # TODO: Create a session and request pooling
 # But first figure out if that will leak or cookies
 def make_request(method: str, url: str, **kwargs: t.Any) -> t.Any:
   """ Call API, retry, and parse Exceptions. Returns a dict from JSON. """
   timeout = kwargs.pop('timeout', 10)
+  method = method.upper()
 
   apilog = protos.ApiLog(
       id=bson_format.hex_id(),
@@ -52,7 +64,9 @@ def make_request(method: str, url: str, **kwargs: t.Any) -> t.Any:
   if 'json' in kwargs:
     apilog.request.body = json.dumps(kwargs['json'])
 
-  if method.upper() == 'POST' and DRYRUN_POST:
+  if method != 'GET' and DRYRUN_POST:
+    # If dryrun then skip POSTs (which also include PATCHes and probably
+    # every other verb than GET)
     logger.warn(f'Skipping API post to {url} because of dryrun')
     return {}
 
@@ -108,16 +122,15 @@ def make_request(method: str, url: str, **kwargs: t.Any) -> t.Any:
       apilog.response.headers.update(resp.headers)
       apilog.response.elapsed_ms = int(resp.elapsed.microseconds / 1000)
       # Only the first 500k of response text
-      apilog.response.content = resp.content.decode()[:500_000]
+      apilog.response.content = _text_overflow(resp.content.decode())
 
-    # Log all requests
-    if True:
+    # Log only POST-ish requests (for now)
+    if method != 'GET':
       db.get_db().apilog.insert_one(bson_format.from_proto(apilog))
 
       if exc:
         # Only propagate the ApiLog ID if we actually save the log entry
         setattr(exc, 'api_log_id', apilog.id)
-
 
 def get(url: str, **kwargs: t.Any) -> t.Any:
   """ Call an API with the GET method. Returns a dict from JSON. """
