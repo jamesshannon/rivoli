@@ -80,8 +80,7 @@
       body: JSON.stringify(body)
     });
 
-    const response = await resp.json();
-    notificationElement.showNotification(response);
+    notificationElement.showNotification(await resp.json());
 
     // force refresh of File
     refreshFile(1_000);

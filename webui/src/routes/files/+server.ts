@@ -30,15 +30,6 @@ export async function POST({ request }) {
     formData.get('filetypeId')
   );
 
-  console.log(
-    'rivoli.copier',
-    'copy_from_upload',
-    file.name,
-    tempFileName,
-    formData.get('partnerId'),
-    formData.get('filetypeId')
-  );
-
   return json({
     status: 'success',
     data: { message: 'File uploaded and scheduled copy.' }

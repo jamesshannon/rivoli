@@ -121,16 +121,16 @@
   };
 
   async function uploadFile(evt: CustomEvent) {
-    console.log(evt.detail);
     let formData = new FormData();
 
     formData.append('file', evt.detail.fileFS);
     formData.append('partnerId', evt.detail.partnerId);
     formData.append('filetypeId', evt.detail.filetypeId);
 
+    modalOpen = false;
     const resp = await fetch(
         $page.url.pathname, { method: 'POST', body: formData });
-    notificationElement.showNotification(resp);
+    notificationElement.showNotification(await resp.json());
   }
 </script>
 
