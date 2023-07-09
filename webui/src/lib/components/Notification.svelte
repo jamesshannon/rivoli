@@ -14,7 +14,7 @@
     } else if (kind === 'error') {
       title = 'Error'
     }
-    subtitle = response.data.message;
+    subtitle = response.data?.message || '';
 
     visible = true;
 
