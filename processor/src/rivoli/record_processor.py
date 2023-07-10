@@ -525,7 +525,8 @@ class DbChunkProcessor(RecordProcessor):
       return None
 
     if recordtype_id not in self.recordtypes_map:
-      # This should not happen
+      # This should not happen. `ValueError`s will stop file processing, which
+      # is desirable since this is a systemic error.
       step_stat.failure += 1
       raise ValueError("Record's recordType is not in the File's map")
 
@@ -535,7 +536,8 @@ class DbChunkProcessor(RecordProcessor):
     if (self._only_process_record_status
         and record.status != self._only_process_record_status):
       # These should have been excluded from the query and this should never
-      # happen
+      # happen. `ValueError`s will stop file processing, which is desirable
+      # since this is a systemic error.
       step_stat.failure += 1
       raise ValueError('Record status is invalid for this step')
 

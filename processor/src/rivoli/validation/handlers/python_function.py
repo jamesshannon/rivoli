@@ -26,6 +26,14 @@ FunctionInputValue = t.Union[
 Parameters = list[t.Union[str, int, float, bool, protos.Function, enum.EnumMeta]]
 """ List of parameter values which might be passed to a function. """
 
+# What to do with native Python exceptions? The upstream functions will capture
+# our custom exceptions but stop file execution on native Python exceptions.
+# This is probably good for things like SyntaxError but causes problems for
+# things like KeyError which should probably only affect the Record. We offer
+# an exceptions.raise_validation_error() wrapper, but should we do that
+# automatically?
+# Probably not?
+
 def _call_python_function(cfg: protos.FunctionConfig,
     function_msg: protos.Function, value: FunctionInputValue
     ) -> t.Union[str, dict[str, str]]:
