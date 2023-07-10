@@ -129,49 +129,6 @@ export function makeDynamicColumns(
     }));
 }
 
-export function makeDynamicColumnsXXX(
-  columnNames: Array<string>,
-  includeRowNum: boolean = true,
-  includeErrors: boolean = true,
-  includeDoneCheckbox: boolean = true,
-): Array<object> {
-  const cols = [];
-  if (includeRowNum) {
-    cols.push({
-      title: 'Row',
-      data: null,
-      render: renderRowNum
-    });
-  }
-
-  cols.push(
-    ...columnNames.map((col) => ({
-      title: col,
-      data: null,
-      className: 'record_field',
-      render: renderColumn
-    }))
-  );
-
-  if (includeErrors) {
-    cols.push({
-      title: 'Errors',
-      data: null,
-      render: renderErrors
-    });
-  }
-
-  if (includeDoneCheckbox) {
-    cols.push({
-      title: 'Done',
-      data: null,
-      defaultContent: '<input type="checkbox" />'
-    });
-  }
-
-  return cols;
-}
-
 export function getTableConfig(retrieveCallback: any, columns: Array<object>) {
   return { ...configDefault, ...{ ajax: retrieveCallback, columns } };
 }

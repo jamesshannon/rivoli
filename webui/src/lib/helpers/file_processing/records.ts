@@ -98,7 +98,16 @@ export function makeRecordFilterPipeline(fileId: string | number,
   // object to an array in one stage and then matching in a later stage.
   if (params.text) {
     isFiltered = true;
-    // Partial string case-insensitive match
+
+    // Create the filter sub-document based on modifiers.
+    // Currently a artial string case-insensitive match
+    // Thoughts for going forward:
+    // Default should be an exact match.
+    // Preceded by - means Not. But how does that work? At least one of the
+    // ORs will match that.
+    // An asterisk converts it to a regexp? Should also be case-insensitive,
+    // though that might be unexpected.
+    // One option is to force the prefixes for any modifiers (especially the -)
     const filter = { $regex: escapeRegex(params.text), $options: 'i' };
 
     stages.push({ $set: {
