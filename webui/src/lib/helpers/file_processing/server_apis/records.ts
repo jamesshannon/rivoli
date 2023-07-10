@@ -95,8 +95,8 @@ export async function handlePostRequestRevertRecords(
 
   // Update the file
   const modified = resp.modifiedCount;
-  log.message = `Reverted record status to ${toRecordStatusName} on ' +
-      '${modified} records`;
+  log.message = `Reverted record status to ${toRecordStatusName} on ` +
+      `${modified} records`;
   db.collection('files').updateOne(
     { _id: fileId },
     {

@@ -236,7 +236,8 @@ class DelimitedLoader(Loader):
 
       # Files with headers should have the FieldTypes' headerColumn field set
       field_keys = {f.headerColumn for f
-                    in self.filetype.recordTypes[0].fieldTypes}
+                    in self.filetype.recordTypes[0].fieldTypes
+                    if f.active}
       # Create a unique list of headers
       columns = set(line)
 
