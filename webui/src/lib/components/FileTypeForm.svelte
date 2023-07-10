@@ -42,7 +42,7 @@
   export let filetype: FileType;
   export let showRecordTypes: boolean = false;
 
-  export let functionsMap: Map<string, Function> | null = null;
+  export let functionsMap: Map<string, Function>;
   const dispatch = createEventDispatcher();
   setContext('FUNCTIONS', functionsMap);
 
@@ -269,7 +269,7 @@
               <svelte:fragment slot="content">
                 {#each filetype.outputs as output}
                   <TabContent>
-                    <OutputSubForm bind:output />
+                    <OutputSubForm {filetype} bind:output />
                   </TabContent>
                 {/each}
               </svelte:fragment>
