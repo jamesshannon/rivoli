@@ -13,6 +13,7 @@ from rivoli import status_scheduler
 from rivoli.function_helpers import exceptions
 from rivoli.function_helpers import helpers
 from rivoli.validation import handler
+from rivoli.validation import typing
 from rivoli.utils import tasks
 
 # Disable pyright checks due to Celery
@@ -137,8 +138,7 @@ class Validator(record_processor.DbChunkProcessor):
         ss_field_func.input += 1
 
         try:
-          value = t.cast(str, self._call_function(
-              protos.Function.FIELD_VALIDATION, cfg, value, field_name))
+          value = self._validate_field(cfg, value, field_name)
           ss_field.success += 1
           ss_field_func.success += 1
         except Exception as exc: # pylint: disable=broad-exception-caught
@@ -171,9 +171,7 @@ class Validator(record_processor.DbChunkProcessor):
         ss_record_func.input += 1
 
         try:
-          validated_fields = t.cast(dict[str, str],
-              self._call_function(protos.Function.RECORD_VALIDATION, cfg,
-              record))
+          validated_fields = self._validate_record(cfg, record)
           ss_record_func.success += 1
         except Exception as exc: # pylint: disable=broad-exception-caught
           ss_record_func.failure += 1
@@ -237,15 +235,41 @@ class Validator(record_processor.DbChunkProcessor):
 
     return update
 
+  def _validate_field(self, cfg: 'protos.FunctionConfig', value: str,
+      field_name: str) -> str:
+    """ Validate a field. """
+    ret_value = self._call_function(protos.Function.FIELD_VALIDATION, cfg,
+                                    value, field_name)
+    # FIELD_VALIDATION will always return a string
+    return t.cast(str, ret_value)
+
+  def _validate_record(self, cfg: 'protos.FunctionConfig',
+                       record: helpers.Record) -> dict[str, str]:
+    """ Validate a record and coerce the return value to a dict.  """
+    ret_val = self._call_function(protos.Function.RECORD_VALIDATION, cfg,
+                                  record)
+    # If None is returned then use the "input" fields
+    # If the function doesn't want to modify the Record values then it can
+    # simply return None and we will return the original record.
+    if not ret_val:
+      return dict(record)
+
+    # If the function returns a Record (actually the original record) then
+    # coerce that to a dict.
+    if isinstance(ret_val, helpers.Record):
+      return dict(ret_val)
+
+    # Otherwise we assume that the return a a dict. The function typing includes
+    # `str but that's not allowed for RECORD_VALIDATION
+    return t.cast(dict[str, str], ret_val)
+
   def _call_function(self, typ: 'protos.Function.FunctionType',
-      cfg: 'protos.FunctionConfig', value: t.Union[str, helpers.Record],
-      field_name: str = '') -> t.Union[str, dict[str, str]]:
+      cfg: 'protos.FunctionConfig', value: typing.ValInput,
+      field_name: str = '') -> typing.ValReturn:
     """ Call a validation function, handle exceptions, and return result. """
     validator = self._functions[cfg.functionId]
     try:
-      result = handler.call_function(typ, cfg, validator, value)
-
-      return result
+      return handler.call_function(typ, cfg, validator, value)
 
     except Exception as exc:
       self.errors.append(self._make_exc_log_entry(exc, field=field_name,

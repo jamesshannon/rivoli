@@ -8,6 +8,7 @@ from rivoli import protos
 
 from rivoli.function_helpers import exceptions
 from rivoli.function_helpers import helpers
+from rivoli.validation import typing
 
 PARAM_TYPE_CONVERTERS: dict[str, t.Callable[[str], t.Any]] = {
   'INTEGER': int,
@@ -60,7 +61,8 @@ def field_validation(cfg: protos.FunctionConfig,
   return str(_call_python_function(cfg, function_msg, value))
 
 def record_validation(cfg: protos.FunctionConfig,
-    function_msg: protos.Function, record: helpers.Record) -> dict[str, str]:
+    function_msg: protos.Function, record: helpers.Record
+    ) -> typing.ValRecordReturn:
   """ Validate an entire record with an external function.
   These functions will run after all the field-level validations and only if
   those validations did not raise an exception.
@@ -68,11 +70,11 @@ def record_validation(cfg: protos.FunctionConfig,
   """
   result = _call_python_function(cfg, function_msg, record)
 
-  if not isinstance(result, dict):
+  if not typing.is_typing_instance(result, typing.ValRecordReturn):
     raise TypeError((f'Python function returned a {type(result)} instead '
-                     'of a dict'))
+                     f'of {typing.ValRecordReturn}'))
 
-  return result
+  return t.cast(typing.ValRecordReturn, result)
 
 def record_upload(cfg: protos.FunctionConfig, function_msg: protos.Function,
     record: helpers.Record) -> str:
