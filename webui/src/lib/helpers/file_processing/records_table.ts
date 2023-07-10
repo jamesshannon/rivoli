@@ -121,7 +121,7 @@ export function makeDynamicColumns(
   return columnNames.map((col) => ({
       title: col,
       data: null,
-      className: `record_field ${fieldMapKey}`,
+      className: `record_field ${fieldMapKey} copiable`,
       // Field columns are not visible by default
       visible: false,
       render: renderColumn,

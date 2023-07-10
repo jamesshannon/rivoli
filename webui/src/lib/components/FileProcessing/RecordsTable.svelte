@@ -8,6 +8,8 @@
     NotificationActionButton
   } from 'carbon-components-svelte';
 
+  import Copy from "carbon-icons-svelte/lib/Copy.svelte";
+
   import { SvelteDataTable } from '@mac-barrett/svelte-data-table';
 
   import { RecordsFilter } from '$lib/helpers/file_processing/records';
@@ -216,6 +218,35 @@
     }
   }
 
+  function copiableEnter(evt: PointerEvent) {
+    const elem = (evt.target as HTMLElement);
+    const btn = document.getElementById('copy_btn')!;
+
+    if (elem.tagName != 'TH' && elem.classList.contains('copiable')) {
+      const value = elem.childNodes[0]?.nodeValue;
+
+      if (value) {
+        elem.appendChild(btn);
+        btn.style.display = 'block';
+        btn.dataset.text = value;
+        return;
+      }
+    } else if (elem.closest('#copy_btn')) {
+      return;
+    } else {
+      // move the button outside of the table so that it doesn't get removed
+      // from the DOM when the table updates
+      document.body.appendChild(btn);
+    }
+
+    btn.style.display = 'none';
+  }
+
+  function copyValueToClipboard() {
+    navigator.clipboard.writeText(
+        document.getElementById('copy_btn')!.dataset.text || '')
+  }
+
   // Set this variable to true every time file is updated.
   $: fileUpdatedSinceRecordsLoad = !!file;
 </script>
@@ -253,11 +284,17 @@
   <Checkbox labelText="Validated Fields" bind:checked={columnGroupValidated.visible} on:check={updateColumnGroupVisibility} />
 {/if}
 
-<div class="local" on:click={expandRowHandler} on:keypress={expandRowHandler}>
+<button id="copy_btn" on:click={copyValueToClipboard}>
+  <Copy size={16} />
+</button>
+
+<div
+  class="local"
+  on:click={expandRowHandler}
+  on:pointerenter|capture={copiableEnter}
+  on:keypress={expandRowHandler}>
   <SvelteDataTable bind:this={recordsDataTable} config={dtConfig} />
 </div>
-
-
 
 <style>
   .local :global(thead th) {
@@ -364,5 +401,23 @@
   }
   .local :global(.pretty_json .key) {
     color: red;
+  }
+
+
+  .local :global(td.copiable),
+  .local :global(span.copiable) {
+    position: relative;
+  }
+
+  #copy_btn {
+    background-color: #CCCCCC66;
+    border: 1px solid #CCCCCC;
+    border-radius: 2px;
+    padding: 2px 2px 0 2px;
+    position: absolute;
+    top: 0;
+    right: 0;
+    border: 0;
+    cursor: pointer;
   }
 </style>
