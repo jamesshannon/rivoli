@@ -37,8 +37,8 @@ message Function {
 
   //string serviceId = 5;
   repeated string tags = 15;
-  repeated string input_keys = 16;
-  repeated string output_keys = 17;
+  // repeated string fieldsIn = 16;
+  // repeated string fieldsOut = 17;
 
   repeated Parameter parameters = 13;
 

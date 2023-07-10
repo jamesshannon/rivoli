@@ -139,8 +139,6 @@ def get_callables(args: argparse.Namespace) -> list[protos.Function]:
             description=docs,
 
             tags=symbol._tags,
-            input_keys=symbol._input_keys,
-            output_keys=symbol._output_keys,
 
             pythonFunction=full_function_name,
             parameters=params,
