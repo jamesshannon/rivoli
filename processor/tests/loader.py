@@ -8,6 +8,7 @@ from rivoli import loader
 import tests
 
 # pylint: disable=protected-access
+# pyright: reportPrivateUsage=false
 
 @mock.patch('rivoli.record_processor.db')
 class LoaderTests(unittest.TestCase):

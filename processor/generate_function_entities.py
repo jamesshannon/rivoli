@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """ CLI to generate a callable configuration file from module inspection. """
 import argparse
+import enum
 import hashlib
 import importlib
 import inspect
@@ -78,12 +79,24 @@ def get_parameters(sig: inspect.Signature, function_type: helpers.FunctionType
   # Now parse any additional parameters
   for param in sig_params[1:]:
     default = (None if param.default == inspect.Parameter.empty
-               else str(param.default))
-    parameters.append(protos.Function.Parameter(
+               else param.default)
+
+    if isinstance(param.annotation, enum.EnumMeta):
+      # The parameter type is an enum, which means that any default is an enum
+      # Function handlers will receive enums as the string value (aka name).
+      parameters.append(protos.Function.Parameter(
         variableName=param.name,
-        type=PYTHON_INSPECT_TYPE_MAP[param.annotation.__name__],
-        defaultValue=default,
-    ))
+        type=protos.Function.ENUM,
+        enumValues=[e.name for e in param.annotation],
+        defaultValue=t.cast(enum.Enum, default).name if default else None
+      ))
+
+    else:
+      parameters.append(protos.Function.Parameter(
+          variableName=param.name,
+          type=PYTHON_INSPECT_TYPE_MAP[param.annotation.__name__],
+          defaultValue=str(default) if default else None,
+      ))
 
   return parameters
 

@@ -1,4 +1,5 @@
 """ Module responsible for functions that call the actual validation. """
+import enum
 import importlib
 import inspect
 import typing as t
@@ -9,10 +10,10 @@ from rivoli.function_helpers import exceptions
 from rivoli.function_helpers import helpers
 
 PARAM_TYPE_CONVERTERS: dict[str, t.Callable[[str], t.Any]] = {
-  'integer': int,
-  'float': float,
-  'bool': lambda val: val.upper() in ('TRUE', ),
-  'string': str,
+  'INTEGER': int,
+  'FLOAT': float,
+  'BOOLEAN': lambda val: val.upper() in ('TRUE', ),
+  'STRING': str,
 }
 
 FunctionInputValue = t.Union[
@@ -21,7 +22,7 @@ FunctionInputValue = t.Union[
     list[helpers.Record]
 ]
 
-Parameters = list[t.Union[str, int, float, bool, protos.Function]]
+Parameters = list[t.Union[str, int, float, bool, protos.Function, enum.EnumMeta]]
 """ List of parameter values which might be passed to a function. """
 
 def _call_python_function(cfg: protos.FunctionConfig,
@@ -98,12 +99,22 @@ def _create_parameters(func: t.Callable[[t.Any], str],
   # Provided parameters should equal # of required parameters. No defaults.
   assert len(funcmsg.parameters) == len(cfg.parameters)
 
-  # All parameters are stored as strings, do necessary conversion
-  for param_val, param in zip(cfg.parameters, funcmsg.parameters):
-    typ = protos.Function.DataType.Name(param.type).lower()
-    params.append(PARAM_TYPE_CONVERTERS[typ](param_val))
-
   sig = inspect.signature(func)
+
+  # All parameters are stored as strings, do necessary conversion
+  for idx, (param_val, param) in enumerate(zip(cfg.parameters,
+                                               funcmsg.parameters), start=1):
+    typ = protos.Function.DataType.Name(param.type)
+    if typ == 'ENUM':
+      # Need to convert the string an instance of the required enum
+      func_param = list(sig.parameters.values())[idx]
+      assert isinstance(func_param.annotation, enum.EnumMeta)
+      # We assume all enum values are UPPERCASE and that this does not introduce
+      # ambiguity
+      params.append(func_param.annotation[param_val.upper()])
+    else:
+      params.append(PARAM_TYPE_CONVERTERS[typ](param_val))
+
   if len(sig.parameters.keys()) > len(cfg.parameters) + 1:
     # For now we just assume that if there is an additional parameter it's for
     # the callable
