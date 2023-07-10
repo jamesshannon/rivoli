@@ -18,13 +18,13 @@
     TextInput
   } from 'carbon-components-svelte';
   import Add from 'carbon-icons-svelte/lib/Add.svelte';
+  import ColumnDependency from "carbon-icons-svelte/lib/ColumnDependency.svelte";
 
   import { makeObjectId } from '$lib/helpers/utils';
 
   import {
     FileType,
     RecordType,
-    FieldType,
     FileType_Format,
     FileType_RequireReview,
     Output,
@@ -32,6 +32,8 @@
     DestinationFile
   } from '$lib/rivoli/protos/config_pb';
   import type { Function } from '$lib/rivoli/protos/functions_pb';
+
+  import Diagram from '$lib/components/FileProcessing/Diagram.svelte';
   import StringList from '$lib/components/StringList.svelte';
   import StringMapping from '$lib/components/StringMapping.svelte';
   import RecordTypeSubForm from '$lib/components/PartnerForm/RecordTypeSubForm.svelte';
@@ -85,6 +87,18 @@
 </script>
 
 <div class="local">
+{#if false}
+  <Button kind="tertiary" icon={ColumnDependency} />
+
+  <div style="width: 100%; height: 500px;">
+  <Diagram
+        {filetype}
+        functions={functionsMap}
+      />
+  </div>
+  {/if}
+
+
   <Form on:submit={submitHandler}>
     <Grid>
       <Row>Description of a filetype</Row>
