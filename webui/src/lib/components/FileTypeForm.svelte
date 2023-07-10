@@ -45,7 +45,8 @@
   setContext('FUNCTIONS', functionsMap);
 
   let formatDropdownItems = [
-    { id: FileType_Format.FLAT_FILE_DELIMITED, text: 'Delimited' }
+    { id: FileType_Format.FLAT_FILE_DELIMITED, text: 'Delimited' },
+    { id: FileType_Format.FLAT_FILE_FIXED_WIDTH, text: 'Fixed-Width' }
   ];
   let reviewDropdownItems = [
     {
@@ -138,6 +139,8 @@
               />
             </Column>
           </Row>
+        {:else if filetype.format === FileType_Format.FLAT_FILE_FIXED_WIDTH}
+          <!-- No settings for fixed-width files. -->
         {/if}
       </FormGroup>
 
