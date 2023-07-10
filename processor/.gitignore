@@ -1,5 +1,9 @@
 .venv/
 **/__pycache__
 src/rivoli/protos/*pb2*
+celerybeat-schedule
 
 src/rivoli.egg-info
+
+# Generated file of function definitions
+functions/python.json
