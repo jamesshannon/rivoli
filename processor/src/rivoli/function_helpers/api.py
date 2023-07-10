@@ -1,6 +1,7 @@
 """ API function helpers. """
 import json
 import os
+import re
 import sys
 import typing as t
 import urllib.parse as urlparse
@@ -37,6 +38,11 @@ def _text_overflow(text: str) -> str:
     return f'{text[:OVERFLOW_LENGTH]}... [plus {overage} characters]'
 
   return text
+
+def _clean_exc_msg(msg: str, url: str) -> str:
+  """ Clean any high-cardinality-looking bits from exception messages """
+  removal_pattern = rf'(for url)?(: )?{re.escape(url)}'
+  return re.sub(removal_pattern, '', msg).strip()
 
 # TODO: Create a session and request pooling
 # But first figure out if that will leak or cookies
@@ -82,9 +88,11 @@ def make_request(method: str, url: str, **kwargs: t.Any) -> t.Any:
     # appropriate handling of status codes and determination of auto-retry
     error_code: t.Union[protos.ProcessingLog.ErrorCode, int]
 
+    exc_msg = str(exc)
+
     # By default we raise an ExecutionError, which is a record-level error. In
     # some cases we want to raise a more serious (file-level) error.
-    if '[Errno 8] nodename nor servname provided' in str(exc):
+    if '[Errno 8] nodename nor servname provided' in exc_msg:
       # This is basically a DNS error. It's actually a reraise of a lower-level
       # exception (socket.gaiaerror?) but we'll just parse the string
       raise exceptions.ConfigurationError(
@@ -102,8 +110,10 @@ def make_request(method: str, url: str, **kwargs: t.Any) -> t.Any:
 
     autoretry = error_code in AUTORETRY_CODES
 
-    raise exceptions.ExecutionError(str(exc), auto_retry=autoretry,
-        http_response=resp, error_code=error_code)
+    summary = _clean_exc_msg(exc_msg, url)
+
+    raise exceptions.ExecutionError(exc_msg, auto_retry=autoretry,
+        http_response=resp, error_code=error_code, summary=summary)
 
   finally:
     # Any error, including a non-200, generates an exception. Some will get

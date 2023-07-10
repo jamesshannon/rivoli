@@ -57,3 +57,14 @@ class ApiTests(unittest.TestCase):
     self.assertEqual(apilog['response']['exception']['type'],
                      'ConfigurationError')
     self.assertEqual(apilog['_id'], ctx.exception.api_log_id)
+
+  def test_clean_exc_msg(self, *_):
+    url = 'https://api.trueaccord.com/api/v1/debtors/abc'
+    core_msg = 'ExecutionError: 502 Server Error: Bad Gateway'
+    dirty_msg = f'{core_msg} for url: {url}'
+
+    cleaned = api._clean_exc_msg(dirty_msg, url)
+    self.assertEqual(cleaned, core_msg)
+
+    cleaned = api._clean_exc_msg(f'Random Message {url}', url)
+    self.assertEqual(cleaned, 'Random Message')
