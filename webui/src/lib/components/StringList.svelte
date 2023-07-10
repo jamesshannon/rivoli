@@ -4,36 +4,43 @@ import {
   TextInput,
   FormGroup,
 } from "carbon-components-svelte";
+import Add from "carbon-icons-svelte/lib/Add.svelte";
 import Delete from "carbon-pictograms-svelte/lib/Delete.svelte";
 
 
 export let strings: Array<string> = [];
-let stringElements = strings;
 
-$: {
-  let last_idx = stringElements.length - 1;
-  if (last_idx == -1 || stringElements[last_idx]) {
-    stringElements.push('');
-  }
-
-  // Assign all non-empty strings to the bound strings property
-  let newstrings = [];
-  for (const str of stringElements) {
-    if (str) {
-      newstrings.push(str);
-    }
-  }
-  strings = newstrings;
+function addString() {
+  strings.push('');
+  strings = strings;
 }
+
+function removeString(idx: number) {
+  strings.splice(idx, 1);
+  strings = strings;
+}
+
 </script>
 
 <div class="local">
-  {#each stringElements as str}
+  {#each strings as str, idx}
     <FormGroup class="string-list">
       <TextInput bind:value="{str}" />
-      <Button iconDescription="Remove" kind="tertiary" expressive icon={Delete} />
+      <Button
+       kind="tertiary"
+       expressive
+       on:click={() => removeString(idx)}
+       iconDescription="Remove"
+       icon={Delete} />
     </FormGroup>
+  {:else}
+    <p>There are no items</p>
   {/each}
+  <Button
+   size="small"
+   kind="tertiary"
+   icon={Add}
+   on:click={addString}>Add</Button>
 </div>
 
 
@@ -51,7 +58,7 @@ $: {
     margin-right: 20px;
   }
 
-  .local :global(.bx--btn) {
+  .local :global(.string-list .bx--btn) {
     min-height: 0;
     padding: 1px 6px;
   }

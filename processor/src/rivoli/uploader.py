@@ -94,7 +94,7 @@ class RecordUploader(record_processor.DbChunkProcessor):
       kwargs['sort'] = [(f'validatedFields.{self._groupby_field}', 1)]
 
     self._process_records(
-        self._get_all_records(protos.Record.VALIDATED, True, **kwargs))
+        self._get_all_records(protos.Record.VALIDATED, False, **kwargs))
 
     self._end_upload()
 
@@ -295,8 +295,7 @@ class RecordUploader(record_processor.DbChunkProcessor):
     except (exceptions.ValidationError, exceptions.ExecutionError) as exc:
       # ValidationError should not occur. ExecutionError is more likely.
       # Either way, the error applies to all the records if in batch mode
-      upload_error = self._make_log_entry(True, str(exc),
-          error_code=exc.error_code, functionId=upload_func.id)
+      upload_error = self._make_exc_log_entry(exc, functionId=upload_func.id)
 
       # recentErrors and log will be empty because this is a representative
       # record. When updating, recentErrors should be replaced while log should

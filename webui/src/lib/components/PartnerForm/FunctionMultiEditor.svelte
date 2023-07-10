@@ -7,10 +7,9 @@
   import Delete from 'carbon-pictograms-svelte/lib/Delete.svelte';
   import Edit from 'carbon-icons-svelte/lib/Edit.svelte';
 
-  import { FunctionConfig } from '$lib/rivoli/protos/config_pb';
-  import {
-    type Function,
-    Function_DataType,
+  import type { FunctionConfig } from '$lib/rivoli/protos/config_pb';
+  import type {
+    Function,
     Function_FunctionType
   } from '$lib/rivoli/protos/functions_pb';
   import FunctionEditorModal from './FunctionEditorModal.svelte';
@@ -27,7 +26,7 @@
 
   let tmpFuncConfig: FunctionConfig | undefined;
 
-  function addNew(evt: MouseEvent) {
+  function addNew() {
     tmpFuncConfig = undefined;
     modalOpen = true;
   }
@@ -47,7 +46,7 @@
     functionConfigs = functionConfigs;
   }
 
-  function saveChanges(evt) {
+  function saveChanges(evt: CustomEvent) {
     const funcConfig = evt.detail.functionConfig;
     if (!funcConfig) {
       return;

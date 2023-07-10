@@ -18,7 +18,7 @@
   import UploadNode from '../FileProcessingDiagram/UploadNode.svelte';
   import ValidateNode from '../FileProcessingDiagram/ValidateNode.svelte';
 
-  export let file: File;
+  export let file: File | undefined = undefined;
   export let filetype: FileType;
   export let functions: Map<string, Function>;
   export let visiblePromise: Promise<boolean>;

@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """ CLI to generate a callable configuration file from module inspection. """
 import argparse
+import enum
 import hashlib
 import importlib
 import inspect
@@ -13,6 +14,7 @@ import typing as t
 
 from rivoli.function_helpers import helpers
 from rivoli.protobson import bson_format
+from rivoli.validation import typing
 from rivoli import protos
 
 PYTHON_INSPECT_TYPE_MAP = {
@@ -22,16 +24,29 @@ PYTHON_INSPECT_TYPE_MAP = {
   'bool': protos.Function.BOOLEAN,
 }
 
-Param = t.Tuple[str, t.Type[t.Any]]
-Return = t.Union[list[t.Type[t.Any]], t.Type[t.Any]]
+class _Param(t.NamedTuple):
+  """ Python function value parameter. """
+  name: str
+  typ: type
 
-FUNCTION_TYPE_SIGNATURE_REQUIREMENTS: \
-    dict[helpers.FunctionType, t.Tuple[Param, Return]] = {
-  helpers.FunctionType.FIELD_VALIDATION: (('value', str), str),
-  helpers.FunctionType.RECORD_VALIDATION: (('record', helpers.Record), dict[str, str]),
-  helpers.FunctionType.RECORD_UPLOAD: (('record', helpers.Record), str),
-  helpers.FunctionType.RECORD_UPLOAD_BATCH: (('records', list[helpers.Record]),
-                                        str),
+class _Signature(t.NamedTuple):
+  """ Python function expected signature. """
+  params: list[_Param]
+  return_: t.TypeAlias
+
+FUNCTION_TYPE_SIGNATURE_REQUIREMENTS: dict[helpers.FunctionType, _Signature] = {
+  helpers.FunctionType.FIELD_VALIDATION:
+      _Signature([_Param('value', typing.ValFieldInput)],
+                 typing.ValFieldReturn),
+  helpers.FunctionType.RECORD_VALIDATION:
+      _Signature([_Param('record', typing.ValRecordInput)],
+                 typing.ValRecordReturn),
+  helpers.FunctionType.RECORD_UPLOAD:
+      _Signature([_Param('record', typing.UploadRecordInput)],
+                 typing.UploadRecordReturn),
+  helpers.FunctionType.RECORD_UPLOAD_BATCH:
+      _Signature([_Param('records', typing.UploadBatchRecordInput)],
+                 typing.UploadBatchRecordReturn),
 }
 
 def parse_args() -> argparse.Namespace:
@@ -53,6 +68,21 @@ def set_id(function: protos.Function):
                         [str(p.type) for p in function.parameters])
   function.id = hashlib.md5(attributes.encode('utf-8')).hexdigest()[:24]
 
+def is_types_in_types(got: type, expected: type) -> bool:
+  """ Return whether the gotten type(s) are a subset of expected type(s).
+  A function might return one or more types (via a Union). All of those types
+  should be in the expected type(s); the function should not have have any
+  types that are not pre-defined.
+  """
+  def get_type_set(type_: type) -> set[type]:
+    return set(t.get_args(type_)
+               if isinstance(type_, t._UnionGenericAlias) else [type_])
+
+  gots = get_type_set(got)
+  exps = get_type_set(expected)
+
+  return gots.issubset(exps)
+
 def get_parameters(sig: inspect.Signature, function_type: helpers.FunctionType
     ) -> list[protos.Function.Parameter]:
   """ Generate proto Parameters from the function signature. """
@@ -61,29 +91,43 @@ def get_parameters(sig: inspect.Signature, function_type: helpers.FunctionType
   reqs = FUNCTION_TYPE_SIGNATURE_REQUIREMENTS[function_type]
 
   sig_params: list[inspect.Parameter] = list(sig.parameters.values())
-  # Check that the first parameter is value:str
   param = sig_params[0]
 
-  if not (param.name == reqs[0][0] and param.annotation == reqs[0][1]):
+  param_req = reqs.params[0]
+
+  if not (param.name == param_req.name
+          and is_types_in_types(param.annotation, param_req.typ)):
     raise ValueError(('First parameter is invalid. Expected '
-                      f'`{reqs[0][0]}: {reqs[0][1]}` but got '
+                      f'`{param_req.name}: {param_req.typ}` but got '
                       f'`{param.name}: {param.annotation.__name__}`'))
 
   # Confirm that the function returns a str
   return_typ = sig.return_annotation if sig.return_annotation else None
-  if not return_typ == reqs[1]:
+  if not is_types_in_types(return_typ, reqs.return_):
     raise ValueError(('Return annotation is invalid. Expected '
-                      f'`{reqs[1]}` but got `{return_typ}`'))
+                      f'`{reqs.return_}` but got `{return_typ}`'))
 
   # Now parse any additional parameters
   for param in sig_params[1:]:
     default = (None if param.default == inspect.Parameter.empty
-               else str(param.default))
-    parameters.append(protos.Function.Parameter(
+               else param.default)
+
+    if isinstance(param.annotation, enum.EnumMeta):
+      # The parameter type is an enum, which means that any default is an enum
+      # Function handlers will receive enums as the string value (aka name).
+      parameters.append(protos.Function.Parameter(
         variableName=param.name,
-        type=PYTHON_INSPECT_TYPE_MAP[param.annotation.__name__],
-        defaultValue=default,
-    ))
+        type=protos.Function.ENUM,
+        enumValues=[e.name for e in param.annotation],
+        defaultValue=t.cast(enum.Enum, default).name if default else None
+      ))
+
+    else:
+      parameters.append(protos.Function.Parameter(
+          variableName=param.name,
+          type=PYTHON_INSPECT_TYPE_MAP[param.annotation.__name__],
+          defaultValue=str(default) if default else None,
+      ))
 
   return parameters
 
@@ -139,8 +183,6 @@ def get_callables(args: argparse.Namespace) -> list[protos.Function]:
             description=docs,
 
             tags=symbol._tags,
-            input_keys=symbol._input_keys,
-            output_keys=symbol._output_keys,
 
             pythonFunction=full_function_name,
             parameters=params,

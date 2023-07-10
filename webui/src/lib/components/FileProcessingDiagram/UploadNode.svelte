@@ -18,7 +18,7 @@
     File_Status.UPLOADED
   );
 
-  let key = file ? ['UPLOAD', node.record.id, node.cfg.id].join('.') : '';
+  let key = file ? ['UPLOAD', node.record.id, node.cfg.id].join(':') : '';
 
   $: stepStat = key ? file?.stats?.steps[key] : undefined;
   $: inputCount = (stepStat?.input || '').toString();

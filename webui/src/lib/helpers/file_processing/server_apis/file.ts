@@ -7,7 +7,7 @@ import { makeLogMsg } from '$lib/helpers/utils';
 
 export async function handlePostApproveUpload(
   fileId: number
-): Promise<{ [key: string]: string }> {
+): Promise<{ [key: string]: any }> {
   // this handles downgrading status to re-run uploads
   const log = makeLogMsg('Approved for uploading');
 
@@ -28,16 +28,22 @@ export async function handlePostApproveUpload(
     // rather than try to recreate
     createTask('rivoli.status_scheduler', 'next_step_id', fileId);
 
-    return { status: 'success' };
+    return {
+      status: 'success',
+      data: { message: 'Upload approved. Scheduled uploading.' }
+    };
   }
 
-  return { status: 'error' };
+  return {
+      status: 'error',
+      data: { message: 'Something went wrong approving the upload.' }
+  };
 }
 
 export async function handlePostExecuteReport(
   fileId: number,
   reqBody: any
-): Promise<{ [key: string]: string }> {
+): Promise<{ [key: string]: any }> {
   const outputId = reqBody.outputId;
 
   createTask(
@@ -47,5 +53,8 @@ export async function handlePostExecuteReport(
     outputId
   );
 
-  return { status: 'success' };
+  return {
+    status: 'success',
+    data: { message: 'Report scheduled for execution.' }
+  };
 }

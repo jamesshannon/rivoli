@@ -18,13 +18,13 @@
     TextInput
   } from 'carbon-components-svelte';
   import Add from 'carbon-icons-svelte/lib/Add.svelte';
+  import ColumnDependency from "carbon-icons-svelte/lib/ColumnDependency.svelte";
 
   import { makeObjectId } from '$lib/helpers/utils';
 
   import {
     FileType,
     RecordType,
-    FieldType,
     FileType_Format,
     FileType_RequireReview,
     Output,
@@ -32,6 +32,8 @@
     DestinationFile
   } from '$lib/rivoli/protos/config_pb';
   import type { Function } from '$lib/rivoli/protos/functions_pb';
+
+  import Diagram from '$lib/components/FileProcessing/Diagram.svelte';
   import StringList from '$lib/components/StringList.svelte';
   import StringMapping from '$lib/components/StringMapping.svelte';
   import RecordTypeSubForm from '$lib/components/PartnerForm/RecordTypeSubForm.svelte';
@@ -40,12 +42,13 @@
   export let filetype: FileType;
   export let showRecordTypes: boolean = false;
 
-  export let functionsMap: Map<string, Function> | null = null;
+  export let functionsMap: Map<string, Function>;
   const dispatch = createEventDispatcher();
   setContext('FUNCTIONS', functionsMap);
 
   let formatDropdownItems = [
-    { id: FileType_Format.FLAT_FILE_DELIMITED, text: 'Delimited' }
+    { id: FileType_Format.FLAT_FILE_DELIMITED, text: 'Delimited' },
+    { id: FileType_Format.FLAT_FILE_FIXED_WIDTH, text: 'Fixed-Width' }
   ];
   let reviewDropdownItems = [
     {
@@ -84,6 +87,18 @@
 </script>
 
 <div class="local">
+{#if false}
+  <Button kind="tertiary" icon={ColumnDependency} />
+
+  <div style="width: 100%; height: 500px;">
+  <Diagram
+        {filetype}
+        functions={functionsMap}
+      />
+  </div>
+  {/if}
+
+
   <Form on:submit={submitHandler}>
     <Grid>
       <Row>Description of a filetype</Row>
@@ -138,6 +153,8 @@
               />
             </Column>
           </Row>
+        {:else if filetype.format === FileType_Format.FLAT_FILE_FIXED_WIDTH}
+          <!-- No settings for fixed-width files. -->
         {/if}
       </FormGroup>
 
@@ -252,7 +269,7 @@
               <svelte:fragment slot="content">
                 {#each filetype.outputs as output}
                   <TabContent>
-                    <OutputSubForm bind:output />
+                    <OutputSubForm {filetype} bind:output />
                   </TabContent>
                 {/each}
               </svelte:fragment>

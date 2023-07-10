@@ -29,8 +29,10 @@ export async function POST({ params, request }) {
   } else if (reqBody.action === 'EXECUTE_REPORT') {
     responseP = handlePostExecuteReport(fileId, reqBody);
   } else {
-    // invalid action
-    responseP = Promise.resolve({ status: 'error' });
+    responseP = Promise.resolve({
+      status: 'error',
+      data: { message: 'Invalid request' }
+    });
   }
 
   return json(await responseP);

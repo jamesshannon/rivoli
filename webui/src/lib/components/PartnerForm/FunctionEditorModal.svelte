@@ -34,20 +34,36 @@
     functionType = [functionType];
   }
 
-  let funcConfig: FunctionConfig;
+  // Copy any bound functionConfig value to a local variable so that we don't
+  // modify the value in the form -- only bubble up the changes on save
+  let localFunctionCfg: FunctionConfig;
   let func: Function | undefined;
 
   let selectedId: string | undefined;
-  let lastSelectedId: string;
 
   const dispatch = createEventDispatcher();
+
+  // Define a lot of variables that won't be set until the modal is first
+  // opened since the function items list is dependent on the selectedId.
+  type Item = {id: string; text: string; summary: string; description: string;};
+  let allItems: Item[];
+  let items: Item[];
+  let fuse: Fuse<Item>;
+
+  const fuseOptions = {
+    keys: [
+      { name: 'text', weight: 0.7 },
+      { name: 'description', weight: 0.3 }
+    ],
+    includeScore: true
+  };
 
   function saveChanges() {
     // Dispatch the functionConfig upward, but only if it's been set up in the
     // modal, which is roughly equivalent to being picked in the dropdown.
-    if (funcConfig.functionId) {
-      console.log('updating', funcConfig);
-      dispatch('save', { functionConfig: funcConfig });
+    if (localFunctionCfg.functionId) {
+      console.log('updating', localFunctionCfg);
+      dispatch('save', { functionConfig: localFunctionCfg });
     } else {
       dispatch('save', { functionConfig: null });
     }
@@ -59,84 +75,85 @@
   // if functionConfig then
   function openHandler() {
     if (functionConfig) {
-      funcConfig = functionConfig.clone();
+      localFunctionCfg = functionConfig.clone();
+      console.log(functionConfig, localFunctionCfg);
     } else {
       console.log('creating new functionconfig');
-      funcConfig = new FunctionConfig({
+      localFunctionCfg = new FunctionConfig({
         id: makeObjectId()
       });
     }
 
-    selectedId = funcConfig.functionId || undefined;
+    // This causes reactivity, and for updateEditor to be called a second time
+    selectedId = localFunctionCfg.functionId || undefined;
+
+    // Update allItems now that we have the selectedId. This ensures that any
+    // deactivated functions are included in the list if they're selected.
+    // Create an array of Combobox-friendly object-ized Functions of *just* the
+    // Functions of the correct type
+    allItems = Array.from(functionsMap.values())
+      .filter((f) =>
+        (functionType as Array<Function_FunctionType>).includes(f.type) &&
+        (f.active || f.id == selectedId)
+      )
+      .map((f) => ({
+        id: f.id,
+        text: f.name,
+        summary: f.description.split('\n', 1)[0],
+        description: f.description
+      }));
+
+    fuse = new Fuse(allItems, fuseOptions);
+
+    // updateEditor() updates the items copy
     updateEditor(true);
   }
 
   function updateEditor(force: boolean = false, _: string | null = null) {
+    console.log('inside updateEditor')
     if (open) {
-      if (force || (funcConfig.functionId || '') != (selectedId || '')) {
-        funcConfig.functionId = selectedId || '';
+      const selectedFunctionUpdated = (localFunctionCfg.functionId || '') != (selectedId || '');
+      console.log('inside updateeditor.open', force, localFunctionCfg.functionId, selectedId, selectedFunctionUpdated);
+      if (force || selectedFunctionUpdated) {
+        console.log('-- doing stuff inside if statement')
+        localFunctionCfg.functionId = selectedId || '';
 
-        // set the func variable, which the left-hand display is bound to
+        // Set the func variable, to which the left-hand side of the form is
+        // bound
+        ////// What about preexisting parameters??????
         if (selectedId) {
           func = functionsMap.get(selectedId);
-          funcConfig.parameters = func!.parameters.map(() => '');
+          if (selectedFunctionUpdated) {
+            localFunctionCfg.parameters = func!.parameters.map(() => '');
+          }
         } else {
           func = undefined;
-          funcConfig.parameters = [];
+          localFunctionCfg.parameters = [];
         }
+
+        // Duplicate allItems to items, which is used by the Combobox
+        items = [... allItems];
       }
 
-      console.log('config id', funcConfig?.id);
+      console.log('config id', localFunctionCfg?.id, localFunctionCfg.functionId, selectedId);
     }
   }
 
   // Combobox - On Change, including first load
   // NB: The on:select handler doesn't get called on *un*select
-  $: {
-    updateEditor(false, selectedId);
-  }
-
-  function shouldExcludeItem(item, value) {
-    // This should skip all filtering (always return false) when the selected
-    // item is chosen and the text exactly matches that item. this could be
-    // done by setting selectedItem outside of this function then
-    // checking against value == selectedItem.description
-    if (!value) return true;
-    return (
-      item.text.toLowerCase().includes(value.toLowerCase()) ||
-      item.description.toLowerCase().includes(value.toLowerCase())
-    );
-  }
-
-  // Create an array of Combobox-friendly object-ized Functions of *just* the
-  // Functions of the correct type
-  const allItems = Array.from(functionsMap.values())
-    .filter((f) =>
-      (functionType as Array<Function_FunctionType>).includes(f.type)
-    )
-    .map((f) => ({
-      id: f.id,
-      text: f.name,
-      summary: f.description.split('\n', 1)[0],
-      description: f.description
-    }));
-  let items = allItems.slice(1, 10);
-
-  const fuseOptions = {
-    keys: [
-      { name: 'text', weight: 0.7 },
-      { name: 'description', weight: 0.3 }
-    ],
-    includeScore: true
-  };
-
-  const fuse = new Fuse(allItems, fuseOptions);
+  $: updateEditor(false, selectedId);
 
   function filterItems(pattern: KeyboardEvent) {
-    const results = fuse.search((pattern.target! as HTMLInputElement).value, {
-      limit: 10
-    });
-    items = results.map((r) => r.item);
+    console.log('searching for ', pattern.target!.value)
+    const qs = (pattern.target! as HTMLInputElement).value;
+    if (! qs) {
+      // Should also check if qs is a full function name and it's the selected
+      // id. In that case it's a dropdown after the selection and the
+      // list should be reset.
+      items = [... allItems];
+    } else {
+      items = fuse.search(qs, { limit: 10 }).map((r) => r.item);
+    }
   }
 </script>
 
@@ -194,8 +211,8 @@
             {/if}
           </Column>
           <Column>
-            {#if func.parameters.length && funcConfig}
-              {#each funcConfig.parameters as value}
+            {#if func.parameters.length && localFunctionCfg}
+              {#each localFunctionCfg.parameters as value}
                 <TextInput bind:value />
               {/each}
             {:else}

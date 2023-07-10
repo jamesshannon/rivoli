@@ -17,6 +17,8 @@ from rivoli.utils import tasks
 
 # pylint: disable=too-few-public-methods
 
+LineGenerator = t.Generator[t.Tuple[str, t.Optional[list[str]]], None, None]
+
 @tasks.app.task
 def load_from_id(file_id: int):
   """ Loader entrypoint for celery.
@@ -30,12 +32,6 @@ def load_from_id(file_id: int):
 
   status_scheduler.next_step(file, filetype)
 
-def load_from_file():
-  # Takes FileType, which might be different than the live version.
-  # Do we need a filerecord id or a live one? Probably a file, so that the caller
-  # can confirm that this is a development file?
-  pass
-
 
 class Loader(record_processor.RecordProcessor):
   """ Iterate through a local file and create Records. """
@@ -48,6 +44,8 @@ class Loader(record_processor.RecordProcessor):
 
   local_file: pathlib.Path
   fileobj: t.Optional[io.TextIOWrapper] = None
+
+  _line_num: int = 1
 
   def _begin_processing(self):
     """ Setup the File and Records to begin loading. """
@@ -68,15 +66,63 @@ class Loader(record_processor.RecordProcessor):
 
     self.file.times.loadingStartTime = bson_format.now()
 
-  def _create_new_record(self, line_num: int, line: list[str],
+  def _create_db_records(self, lines: LineGenerator):
+    """ Create records from lines and into the database.
+    Iterate through a chunk of lines, create new records, and insert those into
+    the database.
+    This accepts a generator so that the generator can do any formatting
+    without pre-processing the entire file.
+    """
+    while line_chunk := list(itertools.islice(lines,
+                                              self._max_pending_updates)):
+      records: list[dict[str, t.Any]] = []
+
+      for line in line_chunk:
+        recordtype: t.Optional[protos.RecordType] = None
+
+        line_raw = line[0]
+        line_fields = line[1]
+
+        if len(self.filetype.recordTypes) == 1:
+          recordtype = self.filetype.recordTypes[0]
+        else:
+          # Find the matching RecordType based on each RecordType's patterns
+          # Re-create the line's values as a single string
+          recordtype = self._get_regexp_matching_record(
+              line_raw, self.filetype.recordTypes,
+              'recordMatches')
+
+        if recordtype:
+          records.append(self._create_new_record(
+            self._line_num, line_raw, line_fields, recordtype.id))
+          self._get_step_stat(recordtype.id).input += 1
+          self._get_step_stat(recordtype.id).success += 1
+          self.file.stats.loadedRecordsSuccess += 1
+        else:
+          # No RecordType found. Create an error record.
+          records.append(self._create_new_record(
+            self._line_num, line_raw, line_fields, None,
+            protos.Record.LOAD_ERROR, 'No record type match found'))
+          self.file.stats.loadedRecordsError += 1
+
+        self._line_num += 1
+
+      self.db.records.insert_many(records, ordered=False)
+      self._update_file(['stats'])
+
+  def _create_new_record(self, line_num: int, line: str,
+      columns: t.Optional[list[str]],
       record_type: t.Union[int, 'protos.Record.RecordTypeRef', None],
       status: protos.Record.Status = protos.Record.LOADED,
       log_msg: t.Optional[str] = None) -> dict[str, t.Any]:
     """ Create an individual Record to be uploaded. Return a dict. """
 
+    # line (string) will always be passed but only save it if columns
+    # is not passed.
     record = protos.Record(
         id=self.record_prefix + line_num,
-        rawColumns=line,
+        rawLine=None if columns else line,
+        rawColumns=columns,
         hash=hashlib.md5(','.join(line).encode()).digest(),
         recordType=record_type,
         status=status,
@@ -91,23 +137,41 @@ class Loader(record_processor.RecordProcessor):
 
     return bson_format.from_proto(record)
 
+  def _close_processing(self) -> None:
+    """ Close the file object and update the db File fields. """
+    if self.fileobj:
+      self.fileobj.close()
+
+    # Final stats update, now that we finished the loading
+    self.file.stats.totalRows = self._line_num - 1
+
+    stepstats = self._get_step_stat()
+
+    stepstats.input = self._line_num - 1
+    stepstats.success = self.file.stats.loadedRecordsSuccess
+    stepstats.failure = self.file.stats.loadedRecordsError
+
+    self.file.log.append(self._make_log_entry(False, 'Loaded records'))
+
+    self.file.times.loadingEndTime = bson_format.now()
+
+    return super()._update_file(
+      ['headerColumns', 'status', 'stats', 'times', 'log', 'recentErrors'])
+
 class DelimitedLoader(Loader):
   """ Iterate through a local delimited file and create Records. """
-  _reader: t.Iterator[list[str]]
   _has_header: bool
-  _delimiter: str
-
-  _line_num: int = 1
+  _detected_delimiter: str
 
   def _process(self):
     """ Load CSV rows. """
     self._begin_processing()
-    self._open_and_validate_file()
-    self._upload_records()
+    reader = self._open_and_validate_file()
+    self._process_csv_file(reader)
 
     # Parent method is responsible for updating File status and updating db
 
-  def _open_and_validate_file(self) -> None:
+  def _open_and_validate_file(self) -> t.Iterator[list[str]]:
     """ Open file from the filesystem and confirm file properties. """
     # Get 8k of sample text from the file and use that to try to detect the
     # dialect and existence of a header
@@ -120,13 +184,13 @@ class DelimitedLoader(Loader):
     dialect = sniffer.sniff(sample)
 
     self._has_header = sniffer.has_header(sample)
-    self._delimiter = dialect.delimiter
+    self._detected_delimiter = dialect.delimiter
 
-    # should confirm dialect and has_header matches anything that's been set on
-    # the file record
+    # Regardless of the sniffed delimiter, set it to the configured delimiter
+    dialect.delimiter = self.filetype.delimitedSeparator
 
     # Create a CSV reader iterator
-    self._reader = csv.reader(self.fileobj, dialect)
+    reader = csv.reader(self.fileobj, dialect)
 
     if self._has_header != self.filetype.hasHeader:
       # File configuration doesn't match what we see in the file. This is a
@@ -138,19 +202,32 @@ class DelimitedLoader(Loader):
           (f'Unexpected file header: Expected {_fmt(self.filetype.hasHeader)} '
            f'but found {_fmt(self._has_header)}'))
 
-    if self._delimiter != self.filetype.delimitedSeparator:
-      raise exceptions.ConfigurationError(
-          (f'Unexpected delimiter: Expected {self.filetype.delimitedSeparator} '
-           f'but found {self._delimiter}'))
+    if self._detected_delimiter != self.filetype.delimitedSeparator:
+      # We used to raise a ConfigurationError if the sniffed delimiter didn't
+      # match the configured delimiter but this caused false positives.
+      self.file.log.append(self._make_log_entry(False,
+          ('Unexpected delimiter: Expected '
+           f"'{self.filetype.delimitedSeparator}' "
+           f"but detected '{self._detected_delimiter}'")))
 
-  def _upload_records(self) -> None:
+    return reader
+
+  def _delimited_rows(self, reader: t.Iterator[list[str]]) -> LineGenerator:
+    """ Generate line data from a CSV reader.
+    Since this is a CSV we return the line as both text and a list of cell
+    values.
+    """
+    for row in reader:
+      yield (self.filetype.delimitedSeparator.join(row), row)
+
+  def _process_csv_file(self, reader: t.Iterator[list[str]]) -> None:
     """ Iterate through file rows and upload to database. """
     if self._has_header:
       # File has header so we treat this first row differently
-      line = next(self._reader)
+      line = next(reader)
 
-      self.db.records.insert_one(self._create_new_record(self._line_num, line,
-          record_type=protos.Record.HEADER))
+      self.db.records.insert_one(self._create_new_record(self._line_num, '',
+          line, record_type=protos.Record.HEADER))
 
       self.file.headerColumns.extend(line)
 
@@ -159,7 +236,8 @@ class DelimitedLoader(Loader):
 
       # Files with headers should have the FieldTypes' headerColumn field set
       field_keys = {f.headerColumn for f
-                    in self.filetype.recordTypes[0].fieldTypes}
+                    in self.filetype.recordTypes[0].fieldTypes
+                    if f.active}
       # Create a unique list of headers
       columns = set(line)
 
@@ -174,56 +252,32 @@ class DelimitedLoader(Loader):
 
       self._line_num += 1
 
-    while lines := list(itertools.islice(self._reader, 1000)):
-      records: list[dict[str, t.Any]] = []
+    self._create_db_records(self._delimited_rows(reader))
 
-      for line in lines:
-        recordtype: t.Optional[protos.RecordType] = None
+class FixedWidthLoader(Loader):
+  """ Iterate through a fixed-width file and create Records. """
 
-        if len(self.filetype.recordTypes) == 1:
-          recordtype = self.filetype.recordTypes[0]
-        else:
-          # Find the matching RecordType based on each RecordType's patterns
-          # Re-create the line's values as a single string
-          recordtype = self._get_regexp_matching_record(
-              self._delimiter.join(line), self.filetype.recordTypes,
-              'recordMatches')
+  def _raw_lines(self, fileobj: io.TextIOWrapper) -> LineGenerator:
+    """ Generate line data from a CSV reader.
+    Since this is a CSV we return the line as both text and a list of cell
+    values.
+    """
+    for line in fileobj:
+      # File lines end in the newline character
+      line = line.strip()
 
-        if recordtype:
-          records.append(self._create_new_record(
-            self._line_num, line, recordtype.id))
-          self._get_step_stat(recordtype.id).input += 1
-          self._get_step_stat(recordtype.id).success += 1
-          self.file.stats.loadedRecordsSuccess += 1
-        else:
-          # No RecordType found. Create an error record.
-          records.append(self._create_new_record(
-            self._line_num, line, None, protos.Record.LOAD_ERROR,
-            'No record type match found'))
-          self.file.stats.loadedRecordsError += 1
+      # The file might end with a double-newline. Though this will also stop
+      # iteration if there are any empty lines within the file
+      if not line:
+        return
 
-        self._line_num += 1
+      yield (line, None)
 
-      self.db.records.insert_many(records, ordered=False)
-      self._update_file(['stats'])
+  def _process(self):
+    self._begin_processing()
 
-    # Final stats update, now that we finished the loading
-    self.file.stats.totalRows = self._line_num - 1
+    # Equivalent of _open_and_validate_file()
+    self.fileobj = open(self.local_file, 'rt', encoding='UTF-8')
 
-    stepstats = self._get_step_stat()
-
-    stepstats.input = self._line_num - 1
-    stepstats.success = self.file.stats.loadedRecordsSuccess
-    stepstats.failure = self.file.stats.loadedRecordsError
-
-    self.file.log.append(self._make_log_entry(False, 'Loaded records'))
-
-  def _close_processing(self) -> None:
-    """ Close the file object and update the db File fields. """
-    if self.fileobj:
-      self.fileobj.close()
-
-    self.file.times.loadingEndTime = bson_format.now()
-
-    return super()._update_file(
-      ['headerColumns', 'status', 'stats', 'times', 'log', 'recentErrors'])
+    # Equivalent of _process_csv_file()
+    self._create_db_records(self._raw_lines(self.fileobj))

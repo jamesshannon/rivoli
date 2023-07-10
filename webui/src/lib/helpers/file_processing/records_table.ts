@@ -58,7 +58,11 @@ const configDefault: StringMap = {
   paging: true,
   pageLength: 10,
   searching: true,
-  dom: 'rt<"controls"ilp>', // hide the search box
+  //searchDelay: 400,
+  search: {
+    return: true,
+  },
+  dom: 'rft<"controls"ilp>', // hide the search box
   ordering: false,
   serverSide: true,
   deferRender: true,
@@ -117,55 +121,12 @@ export function makeDynamicColumns(
   return columnNames.map((col) => ({
       title: col,
       data: null,
-      className: `record_field ${fieldMapKey}`,
+      className: `record_field ${fieldMapKey} copiable`,
       // Field columns are not visible by default
       visible: false,
       render: renderColumn,
       rFieldMapKey: fieldMapKey,
     }));
-}
-
-export function makeDynamicColumnsXXX(
-  columnNames: Array<string>,
-  includeRowNum: boolean = true,
-  includeErrors: boolean = true,
-  includeDoneCheckbox: boolean = true,
-): Array<object> {
-  const cols = [];
-  if (includeRowNum) {
-    cols.push({
-      title: 'Row',
-      data: null,
-      render: renderRowNum
-    });
-  }
-
-  cols.push(
-    ...columnNames.map((col) => ({
-      title: col,
-      data: null,
-      className: 'record_field',
-      render: renderColumn
-    }))
-  );
-
-  if (includeErrors) {
-    cols.push({
-      title: 'Errors',
-      data: null,
-      render: renderErrors
-    });
-  }
-
-  if (includeDoneCheckbox) {
-    cols.push({
-      title: 'Done',
-      data: null,
-      defaultContent: '<input type="checkbox" />'
-    });
-  }
-
-  return cols;
 }
 
 export function getTableConfig(retrieveCallback: any, columns: Array<object>) {
@@ -187,6 +148,8 @@ function renderLogList(logs: Array<any>) {
 export function makeExpandedRow(data: any): string {
   const lines = [];
   if (data.rawColumns) {
+    lines.push(`Record #: ${data.id}`);
+
     lines.push(
       '<div><h5>Raw Columns</h5><pre>' +
         data.rawColumns

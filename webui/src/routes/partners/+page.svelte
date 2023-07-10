@@ -16,9 +16,14 @@
 
   let headers = [
 		{key: 'name', value: 'Partner'},
+		{key: 'fileTypes', value: 'File Types'},
 	]
-  let rows = Array.from(data.partners.values()).map(
-		  (p) => ({id: p.id, name: p.name}));
+  let rows = Array.from(data.partners.values())
+	    .map((p) => ({
+				id: p.id,
+				name: p.name,
+				fileTypes: p.fileTypes,
+			}));
 </script>
 
 <svelte:head>
@@ -42,6 +47,11 @@
 	<svelte:fragment slot="cell" let:row let:cell>
     {#if cell.key === "name"}
       <Link href="/partners/{row.id}">{cell.value}</Link>
+		{:else if cell.key === "fileTypes"}
+			{#each cell.value as ft, idx}
+				<a href="/partners/{row.id}/filetypes/{ft.id}">
+					{ft.name}</a>{#if idx < cell.value.length - 1},&nbsp;{/if}
+			{/each}
     {:else}
       {cell.value}
     {/if}

@@ -12,7 +12,7 @@
   export let file: File | undefined = undefined;
 
   $: status = getNodeStatus(
-    file!,
+    file,
     File_Status.LOADING,
     File_Status.LOAD_ERROR,
     File_Status.LOADED

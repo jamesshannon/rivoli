@@ -9,6 +9,7 @@ from rivoli.protos.config_pb2 import FieldType
 from rivoli.protos.config_pb2 import FunctionConfig
 from rivoli.protos.config_pb2 import Output
 
+from rivoli.protos.processing_pb2 import ApiLog
 from rivoli.protos.processing_pb2 import CopyLog
 from rivoli.protos.processing_pb2 import File
 from rivoli.protos.processing_pb2 import Record

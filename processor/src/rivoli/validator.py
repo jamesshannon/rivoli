@@ -13,6 +13,7 @@ from rivoli import status_scheduler
 from rivoli.function_helpers import exceptions
 from rivoli.function_helpers import helpers
 from rivoli.validation import handler
+from rivoli.validation import typing
 from rivoli.utils import tasks
 
 # Disable pyright checks due to Celery
@@ -46,6 +47,8 @@ class Validator(record_processor.DbChunkProcessor):
 
   _success_status = protos.File.VALIDATED
   _error_status = protos.File.VALIDATE_ERROR
+
+  _record_error_status = protos.Record.VALIDATION_ERROR
 
   _step_stat_prefix = 'VALIDATE'
 
@@ -98,7 +101,7 @@ class Validator(record_processor.DbChunkProcessor):
         protos.File.PARSED)
     self.file.times.validatingStartTime = bson_format.now()
 
-    self._process_records(self._get_all_records(protos.Record.PARSED))
+    self._process_records(self._get_all_records(protos.Record.PARSED, False))
     # Need to decide how to move onto the next step. What is the status if >0
     # Records failed validation? Probably still VALIDATED?
     # Then do we go onto processing or place it on PROCESSING_HOLD?
@@ -137,8 +140,7 @@ class Validator(record_processor.DbChunkProcessor):
         ss_field_func.input += 1
 
         try:
-          value = t.cast(str, self._call_function(
-              protos.Function.FIELD_VALIDATION, cfg, value, field_name))
+          value = self._validate_field(cfg, value, field_name)
           ss_field.success += 1
           ss_field_func.success += 1
         except Exception as exc: # pylint: disable=broad-exception-caught
@@ -171,9 +173,7 @@ class Validator(record_processor.DbChunkProcessor):
         ss_record_func.input += 1
 
         try:
-          validated_fields = t.cast(dict[str, str],
-              self._call_function(protos.Function.RECORD_VALIDATION, cfg,
-              record))
+          validated_fields = self._validate_record(cfg, record)
           ss_record_func.success += 1
         except Exception as exc: # pylint: disable=broad-exception-caught
           ss_record_func.failure += 1
@@ -191,8 +191,19 @@ class Validator(record_processor.DbChunkProcessor):
         record.clear()
         record.update(validated_fields)
 
+
+    # Previously we only set validatedFields if there were no errors, but
+    # it's helpful to see the values from previous validation steps
+
     # Clear the *record*-level field values, in case we're revalidating
     record.updated_record.validatedFields.clear()
+
+    # Coerce all the fields to strings, in case they aren't
+    record.updated_record.validatedFields.update({key: str(val) for key, val
+                                              in validated_fields.items()})
+    # Update the field keys dict -- values will be overwritten and then
+    # ignored
+    self._validated_field_keys.update(validated_fields)
 
     if not self.errors:
       # No errors for this Record.
@@ -200,13 +211,6 @@ class Validator(record_processor.DbChunkProcessor):
       # parsed_fields, set status and add item to the log
       self.file.stats.validatedRecordsSuccess += 1
       record.updated_record.status = protos.Record.VALIDATED
-
-      # Coerce all the fields to strings, in case they aren't
-      record.updated_record.validatedFields.update({key: str(val) for key, val
-                                                in validated_fields.items()})
-      # Update the field keys dict -- values will be overwritten and then
-      # ignored
-      self._validated_field_keys.update(validated_fields)
 
       step_stat.success += 1
     else:
@@ -232,29 +236,50 @@ class Validator(record_processor.DbChunkProcessor):
     # then we've already updated the record fields. Now we re-raise the
     # exception (with the record).
     if file_exception:
-      file_exception.update = update # pyright: reportGeneralTypeIssues=false
+      file_exception.update = update # pyright: ignore[reportGeneralTypeIssues]
       raise file_exception
 
     return update
 
+  def _validate_field(self, cfg: 'protos.FunctionConfig', value: str,
+      field_name: str) -> str:
+    """ Validate a field. """
+    ret_value = self._call_function(protos.Function.FIELD_VALIDATION, cfg,
+                                    value, field_name)
+    # FIELD_VALIDATION will always return a string
+    return t.cast(str, ret_value)
+
+  def _validate_record(self, cfg: 'protos.FunctionConfig',
+                       record: helpers.Record) -> dict[str, str]:
+    """ Validate a record and coerce the return value to a dict.  """
+    ret_val = self._call_function(protos.Function.RECORD_VALIDATION, cfg,
+                                  record)
+    # If None is returned then use the "input" fields
+    # If the function doesn't want to modify the Record values then it can
+    # simply return None and we will return the original record.
+    if not ret_val:
+      return dict(record)
+
+    # If the function returns a Record (actually the original record) then
+    # coerce that to a dict.
+    if isinstance(ret_val, helpers.Record):
+      return dict(ret_val)
+
+    # Otherwise we assume that the return a a dict. The function typing includes
+    # `str but that's not allowed for RECORD_VALIDATION
+    return t.cast(dict[str, str], ret_val)
+
   def _call_function(self, typ: 'protos.Function.FunctionType',
-      cfg: 'protos.FunctionConfig', value: t.Union[str, helpers.Record],
-      field_name: str = '') -> t.Union[str, dict[str, str]]:
+      cfg: 'protos.FunctionConfig', value: typing.ValInput,
+      field_name: str = '') -> typing.ValReturn:
     """ Call a validation function, handle exceptions, and return result. """
     validator = self._functions[cfg.functionId]
     try:
-      result = handler.call_function(typ, cfg, validator, value)
-
-      return result
+      return handler.call_function(typ, cfg, validator, value)
 
     except Exception as exc:
-      error_code = getattr(exc, 'error_code',
-                           protos.ProcessingLog.ERRORCODE_UNKNOWN)
-
-      log = self._make_log_entry(True, str(exc), field=field_name,
-          functionId=validator.id, error_code=error_code)
-      exc.record_updated = True
-      self.errors.append(log)
+      self.errors.append(self._make_exc_log_entry(exc, field=field_name,
+                                                  functionId=validator.id))
 
       if isinstance(exc, exceptions.ValidationError):
         self.file.stats.validationErrors += 1

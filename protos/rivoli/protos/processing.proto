@@ -1,6 +1,8 @@
 syntax = "proto3";
 package rivoli.protos.processing;
 
+import "google/protobuf/timestamp.proto";
+
 message File {
   // This is a 4-btye (sequential) integer so that it can be used as part of
   // the (optimized) Record ID.
@@ -95,7 +97,7 @@ message Record {
 
   string sharedKey = 11;
 
-  // should be a oneof, but oneof's don't allIow repeated fields
+  // should be a oneof, but oneof's don't allow repeated fields
   string rawLine = 6;
   repeated string rawColumns = 7;
 
@@ -172,12 +174,15 @@ message ProcessingLog {
   ErrorCode errorCode = 3;
 
   uint32 time = 4;
+  string summary = 10;
   string message = 5;
 
   string field = 6;
   string functionId = 7;
 
   string stackTrace = 9;
+
+  string apiLogId = 11;
 
   enum LogSource {
     LOGSOURCE_UNKNOWN = 0;
@@ -220,14 +225,33 @@ message ProcessingLog {
 }
 
 message ApiLog {
-  uint32 request_time = 1;
-  string method = 2;
-  string url = 3;
-  string body = 4;
-  uint32 response_code = 5;
-  float request_duration = 6;
+  string id = 1;
+  google.protobuf.Timestamp timestamp = 5;
 
+  bool dryrun = 2;
+  Request request = 3;
+  Response response = 4;
 
+  message Request {
+    string method = 1;
+    string url = 2;
+    uint32 timeout = 3;
+    string body = 4;
+  }
+
+  message Response {
+    uint32 code = 1;
+    map<string, string> headers = 2;
+    uint32 elapsed_ms = 3;
+    string content = 4;
+
+    ResponseException exception = 5;
+  }
+
+  message ResponseException {
+    string type = 1;
+    string message = 2;
+  }
 }
 
 message RecordTimes {

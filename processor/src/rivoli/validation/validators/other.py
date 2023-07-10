@@ -24,4 +24,4 @@ def parse_date(value: str, date_format: str = '') -> str:
     return parser.parse(value).isoformat().replace('T00:00:00', '')
   except ValueError as exc:
     raise exceptions.ValidationError( # pylint: disable=raise-missing-from
-        str(exc))
+        str(exc), summary='Invalid Date Format')

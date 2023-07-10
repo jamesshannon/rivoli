@@ -4,48 +4,56 @@
 		TextInput,
     Button,
   } from "carbon-components-svelte";
-
+  import Add from "carbon-icons-svelte/lib/Add.svelte";
   import Delete from "carbon-pictograms-svelte/lib/Delete.svelte";
 
   export let staticTags: {[key: string]: string} = {};
 
-  function btnRemove(evt) {
-    console.log('removing', evt.target)
-  }
-
+  // This componnent operates on an array of key:value tuples, but updates
+  // the bound object on any changes
   let tagEntries = Object.entries(staticTags);
 
-  $: {
-    let last_idx = tagEntries.length - 1;
-    if (last_idx == -1 || tagEntries[last_idx][0] || tagEntries[last_idx][1]) {
-      tagEntries.push(['', ''])
-    }
+  $: staticTags = Object.fromEntries(tagEntries);
 
-    // Create a new object from the array and assign back to staticTags
-    let newtags: {[key: string]: string} = {};
-    // Exclude the last item which is empty
-    for (const [key, value] of tagEntries) {
-      if (key && value) {
-        newtags[key] = value;
-      }
-    }
+  function addItem() {
+    tagEntries.push(['', '']);
+    tagEntries = tagEntries;
+  }
 
-    staticTags = newtags;
+  function removeItem(idx: number) {
+    tagEntries.splice(idx, 1);
+    tagEntries = tagEntries;
   }
 </script>
 
 <div class="local">
   <FormGroup>
 
-    {#each tagEntries as [key, value]}
+    {#each tagEntries as [key, value], idx}
       <FormGroup class="string-mapping">
-        <TextInput class="key" bind:value={key} id="" />
-        <span class="separator">:</span>
-        <TextInput class="value" id="2" bind:value={value} />
-        <Button on:click="{btnRemove}" iconDescription="Remove" kind="tertiary"
-            expressive icon={Delete} />
+        <div class="key">
+          <TextInput bind:value={key} />
+        </div>
+        <span class="separator">=</span>
+        <div class="value">
+          <TextInput bind:value={value} />
+        </div>
+        <Button
+         kind="tertiary"
+         expressive
+         on:click="{() => removeItem(idx)}"
+         iconDescription="Remove"
+         icon={Delete} />
       </FormGroup>
+    {:else}
+      <p>There are no items</p>
     {/each}
+
+    <Button
+     size="small"
+     kind="tertiary"
+     icon={Add}
+     on:click={addItem}>Add</Button>
 
   </FormGroup>
 </div>
@@ -57,20 +65,26 @@
     justify-content: space-between;
   }
 
-  .local :global(.string-mapping *) {
+  .local :global(.string-mapping > *) {
     display: inline-flex;
+  }
+
+  .local :global(.string-mapping .key) {
+    flex-grow: 1;
   }
 
   .separator {
     font-size: 300%;
-    margin: -5px 15px 0 15px;
+    font-weight: bold;
+    margin: -5px 5px 0 5px;
   }
 
-  .local :global(.value) {
+  .local :global(.string-mapping .value) {
+    flex-grow: 5;
     margin-right: 15px;
   }
 
-  .local :global(.bx--btn) {
+  .local :global(.string-mapping .bx--btn) {
     min-height: 0;
     padding: 1px 6px;
   }

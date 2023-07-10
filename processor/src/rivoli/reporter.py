@@ -4,7 +4,10 @@ import csv
 import datetime
 import io
 import pathlib
+import re
 import typing as t
+
+import pymongo
 
 from rivoli import admin_entities
 from rivoli import config
@@ -78,6 +81,11 @@ class Reporter(record_processor.DbChunkProcessor):
 
   _only_process_record_status = False
 
+  # Setting this makes it easier to creat step stats, but also generates an
+  # unwanted entry automatically. Luckily we are only updating the db with the
+  # single step_stat key that we generated.
+  _step_stat_prefix = 'REPORT'
+
   def __init__(self, file: protos.File, partner: protos.Partner,
       filetype: protos.FileType, inst: protos.OutputInstance,
       output: protos.Output) -> None:
@@ -103,26 +111,37 @@ class Reporter(record_processor.DbChunkProcessor):
 
     root = pathlib.Path(config.get('FILES'))
 
-    self.report_path = self._make_file_path(
-        root, partner.outgoingDirectory, output.file.filePathPattern)
+    self.report_path = self._make_file_path(root, partner.outgoingDirectory,
+        output.file.filePathPattern, output.name)
 
     # Keep default db chunk size, don't batch processing
     # No chunk pre-processing necessary
     # We don't want to write back to the File, and definitely not the Records
 
-
   def _make_file_path(self, root: pathlib.Path, partner_base: str,
-      template: str) -> pathlib.Path:
-    """ Return a report file path made from a formatted template. """
-    now = datetime.datetime.now()
-    filename_vars: dict[str, str] = {
-      'NOW_TS': str(int(now.timestamp())),
-      'ORIG_FILE_STEM': pathlib.Path(self.file.name).stem
-    }
+      template: str, report_name: str) -> pathlib.Path:
+    """ Return a report file path.
+    Use a formatted template string if the template is provided, otherwise
+    use a default name.
+    """
+    now = int(datetime.datetime.now().timestamp())
+    now_hex = f'{now:0x}'
 
-    # Files should always be relative to the root path, and a leading / will
-    # essentially ignore the root
-    relative_path = template.format(**filename_vars).lstrip('/')
+    if template:
+      filename_vars: dict[str, str] = {
+        'NOW_TS': str(now),
+        'NOW_TS_HEX': now_hex,
+        'ORIG_FILE_STEM': pathlib.Path(self.file.name).stem
+      }
+
+      # Files should always be relative to the root path, and a leading / will
+      # essentially ignore the root
+      relative_path = template.format(**filename_vars).lstrip('/')
+    else:
+      report_name = re.sub(r'[^a-zA-Z]', '', report_name)
+      relative_path = f'{report_name}-{now_hex}.csv'
+
+
     report_path = root / partner_base.strip('/') / relative_path
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -173,6 +192,18 @@ class Reporter(record_processor.DbChunkProcessor):
       filter_['status'] = {
           '$in': list(self._report_config.configuration.recordStatuses)}
 
+    # Filter based on Recent Errors list
+    if self._report_config.configuration.failedFunctionConfigs:
+      # NB: This filters on the functionId and not the function instance id.
+      # This might be desirable, but might cause problems if functions get
+      # re-used
+      filter_['recentErrors'] = {
+        '$elemMatch': {
+            'functionId': { '$in':
+                list(self._report_config.configuration.failedFunctionConfigs) }
+        }
+      }
+
     self._process_records(self._get_some_records(filter_))
 
     # Done. Add a log entry.
@@ -183,7 +214,7 @@ class Reporter(record_processor.DbChunkProcessor):
     """ Write a single record to the report. """
     assert len(records) == 1
 
-    step_stat = self._get_step_stat('REPORT', self._report_instance.id)
+    step_stat = self._get_step_stat(self._report_instance.id)
     step_stat.input += 1
 
     record = records[0].orig_record
@@ -197,23 +228,34 @@ class Reporter(record_processor.DbChunkProcessor):
     step_stat.success += 1
 
   def _close_processing(self) -> None:
-    # Do nothing
+    # TODO: This wasn't necessarily a success.
     # Update the instance message values, which are a reference to File.outputs,
     # so these get updates when outputs is updated
     self._report_instance.endTime = bson_format.now()
     self._report_instance.outputFilename = str(self.report_path)
     self._report_instance.status = protos.OutputInstance.SUCCESS
 
-    # Need to append new logs
-    # Can't update status because there might be others, so let
+    # This appears overly complex because multiple reports might get generated
+    # at the same time and lead to a race condition and overwrite the entire
+    # file document, or even just the `logs` or `outputs` items.
+    # Instead we update just our StepStat and just append logs and errors.
+    # We also update only the specific OutputInstance we're working on.
+    # The mongodb filters for these are incompatible, so they have to be done
+    # as two Updates in a bulk write.
+    # We don't update file status because there might be other reports, so let
     # status_scheduler figure that out.
-    # TODO: We shouldn't be updating outputs because that might overwrite
-    # changes to another output. We can instead overwrite a single output based
-    # on ID with https://stackoverflow.com/a/26199283/21529160. Also, stats,
-    # which we should append just the appropriate key(s) to. Probably need
-    # to change the update_fields to be `stats.stepStats.ID`
-    db.get_db().files.update_one(*bson_format.get_update_args(self.file,
-        ['outputs', 'stats'], list_append_fields=['log', 'recentErrors']))
+    db.get_db().files.bulk_write([
+      # Append the log and recentErrors entries and update only the relevant
+      # step stat based on mapping key
+      pymongo.UpdateOne(*bson_format.get_update_args(self.file,
+          [f'stats.steps.{self._get_step_stat_key(self._report_instance.id)}'],
+          list_append_fields=['log', 'recentErrors'])),
+      # Update only the relevant output array item based on instance ID
+      pymongo.UpdateOne(*bson_format.get_array_item_update_args(self.file,
+          'outputs', self._report_instance)),
+      ],
+      ordered=False
+    )
 
 class CsvReporter(Reporter):
   """ CSV Report Writer, includes header and no header. """

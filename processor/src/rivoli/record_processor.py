@@ -40,6 +40,10 @@ class RecordProcessor(abc.ABC):
     self.record_prefix: int = self.file.id << 32
     """ 32-bit-shifted File ID """
 
+    # Update batching
+    self._max_pending_updates = 1000
+    """ Max updates to queue for writing to mongodb. """
+
     self.db = db.get_db() # pylint: disable=invalid-name
 
   def process(self):
@@ -48,7 +52,7 @@ class RecordProcessor(abc.ABC):
     `_process()` (which must be implemented on child classes) and handles any
     exceptions from that call. It also calls `_close_processing()` (also
     in the child class) at the end in a finally block (ie, regardless of any
-    excpetions).
+    exceptions).
     """
     # This method simply calls the child class' _process() method, but
     # captures exceptions and add them to the file, which is a common pattern
@@ -59,14 +63,9 @@ class RecordProcessor(abc.ABC):
         self.file.status = self._success_status
 
     except Exception as exc: # pylint: disable=broad-exception-caught
-      error_code = getattr(exc, 'error_code',
-                           protos.ProcessingLog.ERRORCODE_UNKNOWN)
-      log = self._make_log_entry(True, f'{exc.__class__.__name__}: {str(exc)}',
-          error_code, stackTrace=traceback.format_exc())
-
+      log = self._make_exc_log_entry(exc)
       self.file.log.append(log)
       self.file.recentErrors.append(log)
-
 
       if isinstance(exc, (exceptions.ConfigurationError, )):
         # ConfigurationErrors are "expected" errors and not indicative of
@@ -216,6 +215,15 @@ class RecordProcessor(abc.ABC):
       if any(key.startswith(step_prefix) for step_prefix in step_prefixes):
         del self.file.stats.steps[key]
 
+  def _get_step_stat_key(self, *args: t.Any) -> str:
+    """ Get the StepStat key for this particular step.
+    *args is any additional arbitrary string(s) that are added at end and
+    separated by .'s.
+    """
+    prefix = self._step_stat_prefix or ''
+    # If prefix is None then an empty string will cause a leading _
+    return ':'.join([prefix] + [str(x) for x in args]).lstrip(':')
+
   def _get_step_stat(self, *args: t.Any) -> protos.StepStats:
     """ Get the StepStat for this particular step.
     *args is any additional arbitrary string(s) that are added at end and
@@ -224,13 +232,11 @@ class RecordProcessor(abc.ABC):
     If _step_stat_prefix is empty (the default) then we return a "disconnected"
     instance of a StepStat. This makes it easier for shared RecordProcessor
     code not use StepStats without a lot of logic.
-
     """
     if not self._step_stat_prefix:
       return protos.StepStats()
 
-    key = '.'.join([self._step_stat_prefix] + [str(x) for x in args])
-    return self.file.stats.steps[key]
+    return self.file.stats.steps[self._get_step_stat_key(*args)]
 
   def _get_regexp_matching_record(self, text: str,
         records: t.Sequence[protos.RecordType],
@@ -253,12 +259,45 @@ class RecordProcessor(abc.ABC):
           None,
       **kwargs: t.Any
       ) -> protos.ProcessingLog:
+    """ Create a log entry. """
     return protos.ProcessingLog(
       source=self.log_source,
       level=protos.ProcessingLog.ERROR if error else protos.ProcessingLog.INFO,
       errorCode=error_code,
       time=bson_format.now(),
       message=message,
+      **kwargs
+    )
+
+  def _make_exc_log_entry(self, exc: Exception, **kwargs: t.Any):
+    """ Create a log entry from an exception. """
+    classname = exc.__class__.__name__
+    summary = str(getattr(exc, 'summary', ''))
+    message = f'{classname}: {exc}'
+    error_code = getattr(exc, 'error_code',
+                         protos.ProcessingLog.ERRORCODE_UNKNOWN)
+
+    # Only include the stack trace if it's an "unexpected" error. RivoliErrors
+    # are expected validation-related errors.
+    # RivoliErrors also tend to be intentionally crafted. If a summary isn't
+    # provided then defer to the message. OTOH, system exceptions can have a
+    # lot of noise in the exception message so we use the classname.
+    stack_trace = None
+    if isinstance(exc, exceptions.RivoliError):
+      summary = summary or message
+    else:
+      summary = summary or classname
+      stack_trace = traceback.format_exc()
+
+    return protos.ProcessingLog(
+      source=self.log_source,
+      level=protos.ProcessingLog.ERROR,
+      errorCode=error_code,
+      apiLogId=getattr(exc, 'api_log_id', None),
+      time=bson_format.now(),
+      summary=summary,
+      message=message,
+      stackTrace=stack_trace,
       **kwargs
     )
 
@@ -286,10 +325,6 @@ class DbChunkProcessor(RecordProcessor):
     """ True to force processing of records. """
     self._is_batch_mode = False
     """ If this processing is being done in batch mode. """
-
-    # Update batching
-    self._max_pending_updates = 1000
-    """ Max updates to queue for writing to mongodb. """
 
   def _set_max_pending_records(self, max_records: t.Optional[int]) -> None:
     """ Set the max records to process at once. Recalcs max_pending_updates.
@@ -428,11 +463,7 @@ class DbChunkProcessor(RecordProcessor):
             raise exc
 
           # Make a record update and add it to the updates queue
-          error_code = getattr(exc, 'error_code',
-                              protos.ProcessingLog.ERRORCODE_UNKNOWN)
-          log = self._make_log_entry(True,
-              f'{exc.__class__.__name__}: {str(exc)}',
-              error_code, stackTrace=traceback.format_exc())
+          log = self._make_exc_log_entry(exc)
 
           record.status = self._record_error_status
           record.log.append(log)
@@ -495,7 +526,8 @@ class DbChunkProcessor(RecordProcessor):
       return None
 
     if recordtype_id not in self.recordtypes_map:
-      # This should not happen
+      # This should not happen. `ValueError`s will stop file processing, which
+      # is desirable since this is a systemic error.
       step_stat.failure += 1
       raise ValueError("Record's recordType is not in the File's map")
 
@@ -505,7 +537,8 @@ class DbChunkProcessor(RecordProcessor):
     if (self._only_process_record_status
         and record.status != self._only_process_record_status):
       # These should have been excluded from the query and this should never
-      # happen
+      # happen. `ValueError`s will stop file processing, which is desirable
+      # since this is a systemic error.
       step_stat.failure += 1
       raise ValueError('Record status is invalid for this step')
 

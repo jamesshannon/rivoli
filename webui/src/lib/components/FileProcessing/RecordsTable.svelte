@@ -8,6 +8,8 @@
     NotificationActionButton
   } from 'carbon-components-svelte';
 
+  import Copy from "carbon-icons-svelte/lib/Copy.svelte";
+
   import { SvelteDataTable } from '@mac-barrett/svelte-data-table';
 
   import { RecordsFilter } from '$lib/helpers/file_processing/records';
@@ -71,8 +73,6 @@
   columns.push(...errorsColumn);
   columnGroups.push({visible: true, length: 1});
 
-  console.log(columnGroups);
-
   function removeGroupHeader() {
     document.getElementById('table_group_header')?.remove();
   }
@@ -83,7 +83,7 @@
     // Possibly remove the group header row
     removeGroupHeader();
 
-    // Add a new grouph header row
+    // Add a new group header row
     const tags = ['<tr id="table_group_header" class="groups">',
         ...columnGroups
             .filter((g) => g.visible)
@@ -124,13 +124,13 @@
     // The datatable doesn't auto-size correctly if it's instantiated while
     // hidden. Call this to resize.
     document.getElementById('table')!.style.width = '100%';
-    recordsDataTable?.getAPI()?.columns.adjust().draw();
+    recordsDataTable?.getAPI()?.columns.adjust().draw('page');
   }
 
   function updateDatatableFilter() {
     // Filter & redraw the datatable when the dropdown is changed
     // This causes the datatable to call retrieveRecords()
-    // Can't use reactivity because this causes filter to be updated
+    // Can't use reactivity because this causes `filter` to be updated
     recordsDataTable
       ?.getAPI()
       ?.column('status:name')!
@@ -144,6 +144,8 @@
       requestData.columns[3].data === 'status',
       'Fourth column is unexpected'
     );
+
+    filter.text = requestData.search.value;
 
     // Create query parameters from the datatables start/limit parameters plus
     // the filter RecordsFilter values
@@ -160,7 +162,7 @@
     const records = [];
 
     // Update the returned records
-    for (let record of result.records) {
+    for (let record of result.data.records) {
       // Convert the recordType to the appropriate enum value
       if (record.recordType < 1000) {
         record.recordType = Record_RecordTypeRef[record.recordType];
@@ -175,7 +177,7 @@
     }
 
     // Update the statusCounts map.
-    statusCounts = new Map(Object.entries(result.statusCounts));
+    statusCounts = new Map(Object.entries(result.data.statusCounts));
 
     // Calculate the number of records available that match this (possible)
     // filter. This is used by the datatable to show an "... of x entries" and
@@ -187,6 +189,8 @@
       // the value from the file.stats. Alternatively, we could sum up the
       // values from the statusCounts map.
       filter.resultCount = file.stats?.totalRows || 0;
+      filter.resultCount = Array.from(statusCounts.values())
+          .reduce((a, b) => a + b, 0);
     }
 
     fileUpdatedSinceRecordsLoad = false;
@@ -212,6 +216,35 @@
         row.child(makeExpandedRow(row.data())).show();
       }
     }
+  }
+
+  function copiableEnter(evt: PointerEvent) {
+    const elem = (evt.target as HTMLElement);
+    const btn = document.getElementById('copy_btn')!;
+
+    if (elem.tagName != 'TH' && elem.classList.contains('copiable')) {
+      const value = elem.childNodes[0]?.nodeValue;
+
+      if (value) {
+        elem.appendChild(btn);
+        btn.style.display = 'block';
+        btn.dataset.text = value;
+        return;
+      }
+    } else if (elem.closest('#copy_btn')) {
+      return;
+    } else {
+      // move the button outside of the table so that it doesn't get removed
+      // from the DOM when the table updates
+      document.body.appendChild(btn);
+    }
+
+    btn.style.display = 'none';
+  }
+
+  function copyValueToClipboard() {
+    navigator.clipboard.writeText(
+        document.getElementById('copy_btn')!.dataset.text || '')
   }
 
   // Set this variable to true every time file is updated.
@@ -251,11 +284,17 @@
   <Checkbox labelText="Validated Fields" bind:checked={columnGroupValidated.visible} on:check={updateColumnGroupVisibility} />
 {/if}
 
-<div class="local" on:click={expandRowHandler} on:keypress={expandRowHandler}>
+<button id="copy_btn" on:click={copyValueToClipboard}>
+  <Copy size={16} />
+</button>
+
+<div
+  class="local"
+  on:click={expandRowHandler}
+  on:pointerenter|capture={copiableEnter}
+  on:keypress={expandRowHandler}>
   <SvelteDataTable bind:this={recordsDataTable} config={dtConfig} />
 </div>
-
-
 
 <style>
   .local :global(thead th) {
@@ -362,5 +401,23 @@
   }
   .local :global(.pretty_json .key) {
     color: red;
+  }
+
+
+  .local :global(td.copiable),
+  .local :global(span.copiable) {
+    position: relative;
+  }
+
+  #copy_btn {
+    background-color: #CCCCCC66;
+    border: 1px solid #CCCCCC;
+    border-radius: 2px;
+    padding: 2px 2px 0 2px;
+    position: absolute;
+    top: 0;
+    right: 0;
+    border: 0;
+    cursor: pointer;
   }
 </style>

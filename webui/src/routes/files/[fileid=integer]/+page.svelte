@@ -20,6 +20,7 @@
   import { Function } from '$lib/rivoli/protos/functions_pb';
   import { File_Status, File } from '$lib/rivoli/protos/processing_pb';
 
+  import Notification from '$lib/components/Notification.svelte';
   import Details from '$lib/components/FileProcessing/Details.svelte';
   import Outputs from '$lib/components/FileProcessing/Outputs.svelte';
   import RecordsTable from '$lib/components/FileProcessing/RecordsTable.svelte';
@@ -54,10 +55,7 @@
 
   let recordsTableInstance: any;
   let selectedTabIdx = 0;
-
-  onMount(() => {
-    refreshFile();
-  });
+  let notificationElement: Notification;
 
   function refreshFile(timeout_ms?: number) {
     const refresh_time =
@@ -82,8 +80,7 @@
       body: JSON.stringify(body)
     });
 
-    const response = await resp.json();
-    alert(JSON.stringify(response));
+    notificationElement.showNotification(await resp.json());
 
     // force refresh of File
     refreshFile(1_000);
@@ -102,21 +99,14 @@
   }
 
   async function revertRecordStatuses(evt: CustomEvent) {
-    const resp = await fetch($page.url.pathname, {
-      method: 'POST',
-      body: JSON.stringify({
+    doFileAction({
         action: 'REVERT_RECORDS',
         toStatus: evt.detail.revertToId,
         ...evt.detail.filter.filterObj
-      })
-    });
-
-    const response = await resp.json();
+      });
 
     recordsTableInstance.resetFilters();
     selectedTabIdx = 0;
-
-    alert(JSON.stringify(response));
   }
 
   let res;
@@ -125,14 +115,20 @@
       res = resolve;
     }
   );
+
+  onMount(() => {
+    refreshFile();
+  });
 </script>
+
+<Notification bind:this={notificationElement} />
 
 <Breadcrumb noTrailingSlash>
   <BreadcrumbItem href="/">Home</BreadcrumbItem>
   <BreadcrumbItem href="/files">File Processing</BreadcrumbItem>
-  <BreadcrumbItem href="/files/{file.id}" isCurrentPage
-    >{file.name}</BreadcrumbItem
-  >
+  <BreadcrumbItem
+   href="/files/{file.id}"
+   isCurrentPage>{file.name}</BreadcrumbItem>
 </Breadcrumb>
 
 <br /><br />
@@ -166,7 +162,7 @@
     on:click={() => recordsTableInstance.resizeTable()}
   />
   <Tab label="Logs" />
-  {#if file.status >= File_Status.UPLOADED}<Tab label="Reports" />{/if}
+  <Tab label="Reports" />
 
   <svelte:fragment slot="content">
     <!-- Tab: Details -->
@@ -200,11 +196,9 @@
     </TabContent>
 
     <!-- Tab: Reports -->
-    {#if file.status >= File_Status.UPLOADED}
-      <TabContent>
-        <Outputs {file} {filetype} on:runReport={runReport} />
-      </TabContent>
-    {/if}
+    <TabContent>
+      <Outputs {file} {filetype} on:runReport={runReport} />
+    </TabContent>
   </svelte:fragment>
 </Tabs>
 

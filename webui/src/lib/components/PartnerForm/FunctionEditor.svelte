@@ -8,9 +8,8 @@
   import Delete from 'carbon-pictograms-svelte/lib/Delete.svelte';
 
   import type { FunctionConfig } from '$lib/rivoli/protos/config_pb';
-  import {
-    type Function,
-    Function_DataType,
+  import type {
+    Function,
     Function_FunctionType
   } from '$lib/rivoli/protos/functions_pb';
   import FunctionEditorModal from './FunctionEditorModal.svelte';
@@ -23,20 +22,16 @@
 
   let modalOpen = false;
 
-  function editHandler(evt) {
+  function editHandler() {
     modalOpen = true;
   }
 
-  function deleteHandler(evt) {
+  function deleteHandler() {
     functionConfig = undefined;
   }
 
-  function saveChanges(evt) {
+  function saveChanges(evt: CustomEvent) {
     functionConfig = evt.detail.functionConfig;
-  }
-
-  $: {
-    console.log(functionConfig);
   }
 </script>
 

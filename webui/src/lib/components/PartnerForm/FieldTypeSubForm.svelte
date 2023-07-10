@@ -1,8 +1,6 @@
 <script lang="ts">
   import {
-    Button,
     Checkbox,
-    Dropdown,
     Grid,
     Row,
     Column,
@@ -10,9 +8,6 @@
     FormGroup,
     FormLabel,
     NumberInput,
-    Tabs,
-    Tab,
-    TabContent,
     TextArea,
     TextInput
   } from 'carbon-components-svelte';
@@ -20,7 +15,8 @@
   import {
     FileType_Format,
     FieldType,
-    type FileType
+    type FileType,
+    FixedWidthFieldRange
   } from '$lib/rivoli/protos/config_pb';
 
   import FunctionMultiEditor from './FunctionMultiEditor.svelte';
@@ -47,10 +43,17 @@
       fieldLocationValues[0] = format;
       fieldLocationValues[1] = hasHeader;
 
-      if (format === FileType_Format.FLAT_FILE_DELIMITED && hasHeader) {
-        fieldtype.fieldLocation.case = 'headerColumn';
-      } else if (format === FileType_Format.FLAT_FILE_DELIMITED && !hasHeader) {
-        fieldtype.fieldLocation.case = 'columnIndex';
+      if (format === FileType_Format.FLAT_FILE_DELIMITED && hasHeader
+          && fieldtype.fieldLocation.case !== 'headerColumn') {
+        fieldtype.fieldLocation = { case: 'headerColumn', value: '' };;
+      } else if (format === FileType_Format.FLAT_FILE_DELIMITED && !hasHeader
+          && fieldtype.fieldLocation.case !== 'columnIndex') {
+        fieldtype.fieldLocation = { case: 'columnIndex', value: 0 };
+      } else if (format === FileType_Format.FLAT_FILE_FIXED_WIDTH
+          && fieldtype.fieldLocation.case !== 'charRange') {
+        fieldtype.fieldLocation = {
+          case: 'charRange',
+          value: new FixedWidthFieldRange() };
       }
     }
   }
@@ -60,7 +63,10 @@
   <Grid>
     <Row>
       <Column>
-        <TextInput labelText="Field Name" bind:value={fieldtype.name} />
+        <TextInput
+          labelText="Field Name"
+          helperText="UPPER_CASE format is recommended"
+          bind:value={fieldtype.name} />
       </Column>
       <Column>
         <Checkbox labelText="Active" bind:checked={fieldtype.active} />
@@ -77,14 +83,19 @@
       </Column>
       <Column>
         {#if fieldtype.fieldLocation.case === 'headerColumn'}
+          <!-- Delimited With Header -->
           <TextInput
             labelText="Header Column Name"
             helperText="adfjadf jasf"
             bind:value={fieldtype.fieldLocation.value}
           />
-        {:else}
-          # Delimited Without Header
-          <NumberInput hideSteppers label="Header Column Index" min="1" />
+        {:else if fieldtype.fieldLocation.case === 'columnIndex'}
+          <!-- Delimited Without Header -->
+          <NumberInput hideSteppers label="Header Column Index" min={1} />
+        {:else if fieldtype.fieldLocation.case === 'charRange'}
+          <!-- Fixed-width -->
+          <NumberInput label="Start" min={1} bind:value={fieldtype.fieldLocation.value.start} />
+          <NumberInput label="End" min={1} bind:value={fieldtype.fieldLocation.value.end} />
         {/if}
       </Column>
     </Row>

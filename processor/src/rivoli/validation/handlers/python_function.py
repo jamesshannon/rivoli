@@ -1,4 +1,5 @@
 """ Module responsible for functions that call the actual validation. """
+import enum
 import importlib
 import inspect
 import typing as t
@@ -7,12 +8,13 @@ from rivoli import protos
 
 from rivoli.function_helpers import exceptions
 from rivoli.function_helpers import helpers
+from rivoli.validation import typing
 
 PARAM_TYPE_CONVERTERS: dict[str, t.Callable[[str], t.Any]] = {
-  'integer': int,
-  'float': float,
-  'bool': lambda val: val.upper() in ('TRUE', ),
-  'string': str,
+  'INTEGER': int,
+  'FLOAT': float,
+  'BOOLEAN': lambda val: val.upper() in ('TRUE', ),
+  'STRING': str,
 }
 
 FunctionInputValue = t.Union[
@@ -21,8 +23,16 @@ FunctionInputValue = t.Union[
     list[helpers.Record]
 ]
 
-Parameters = list[t.Union[str, int, float, bool, protos.Function]]
+Parameters = list[t.Union[str, int, float, bool, protos.Function, enum.EnumMeta]]
 """ List of parameter values which might be passed to a function. """
+
+# What to do with native Python exceptions? The upstream functions will capture
+# our custom exceptions but stop file execution on native Python exceptions.
+# This is probably good for things like SyntaxError but causes problems for
+# things like KeyError which should probably only affect the Record. We offer
+# an exceptions.raise_validation_error() wrapper, but should we do that
+# automatically?
+# Probably not?
 
 def _call_python_function(cfg: protos.FunctionConfig,
     function_msg: protos.Function, value: FunctionInputValue
@@ -59,7 +69,8 @@ def field_validation(cfg: protos.FunctionConfig,
   return str(_call_python_function(cfg, function_msg, value))
 
 def record_validation(cfg: protos.FunctionConfig,
-    function_msg: protos.Function, record: helpers.Record) -> dict[str, str]:
+    function_msg: protos.Function, record: helpers.Record
+    ) -> typing.ValRecordReturn:
   """ Validate an entire record with an external function.
   These functions will run after all the field-level validations and only if
   those validations did not raise an exception.
@@ -67,11 +78,11 @@ def record_validation(cfg: protos.FunctionConfig,
   """
   result = _call_python_function(cfg, function_msg, record)
 
-  if not isinstance(result, dict):
+  if not typing.is_typing_instance(result, typing.ValRecordReturn):
     raise TypeError((f'Python function returned a {type(result)} instead '
-                     'of a dict'))
+                     f'of {typing.ValRecordReturn}'))
 
-  return result
+  return t.cast(typing.ValRecordReturn, result)
 
 def record_upload(cfg: protos.FunctionConfig, function_msg: protos.Function,
     record: helpers.Record) -> str:
@@ -98,12 +109,22 @@ def _create_parameters(func: t.Callable[[t.Any], str],
   # Provided parameters should equal # of required parameters. No defaults.
   assert len(funcmsg.parameters) == len(cfg.parameters)
 
-  # All parameters are stored as strings, do necessary conversion
-  for param_val, param in zip(cfg.parameters, funcmsg.parameters):
-    typ = protos.Function.DataType.Name(param.type).lower()
-    params.append(PARAM_TYPE_CONVERTERS[typ](param_val))
-
   sig = inspect.signature(func)
+
+  # All parameters are stored as strings, do necessary conversion
+  for idx, (param_val, param) in enumerate(zip(cfg.parameters,
+                                               funcmsg.parameters), start=1):
+    typ = protos.Function.DataType.Name(param.type)
+    if typ == 'ENUM':
+      # Need to convert the string an instance of the required enum
+      func_param = list(sig.parameters.values())[idx]
+      assert isinstance(func_param.annotation, enum.EnumMeta)
+      # We assume all enum values are UPPERCASE and that this does not introduce
+      # ambiguity
+      params.append(func_param.annotation[param_val.upper()])
+    else:
+      params.append(PARAM_TYPE_CONVERTERS[typ](param_val))
+
   if len(sig.parameters.keys()) > len(cfg.parameters) + 1:
     # For now we just assume that if there is an additional parameter it's for
     # the callable
