@@ -48,6 +48,8 @@ class Validator(record_processor.DbChunkProcessor):
   _success_status = protos.File.VALIDATED
   _error_status = protos.File.VALIDATE_ERROR
 
+  _record_error_status = protos.Record.VALIDATION_ERROR
+
   _step_stat_prefix = 'VALIDATE'
 
   def __init__(self, file: protos.File, partner: protos.Partner,
@@ -99,7 +101,7 @@ class Validator(record_processor.DbChunkProcessor):
         protos.File.PARSED)
     self.file.times.validatingStartTime = bson_format.now()
 
-    self._process_records(self._get_all_records(protos.Record.PARSED))
+    self._process_records(self._get_all_records(protos.Record.PARSED, False))
     # Need to decide how to move onto the next step. What is the status if >0
     # Records failed validation? Probably still VALIDATED?
     # Then do we go onto processing or place it on PROCESSING_HOLD?
@@ -189,8 +191,19 @@ class Validator(record_processor.DbChunkProcessor):
         record.clear()
         record.update(validated_fields)
 
+
+    # Previously we only set validatedFields if there were no errors, but
+    # it's helpful to see the values from previous validation steps
+
     # Clear the *record*-level field values, in case we're revalidating
     record.updated_record.validatedFields.clear()
+
+    # Coerce all the fields to strings, in case they aren't
+    record.updated_record.validatedFields.update({key: str(val) for key, val
+                                              in validated_fields.items()})
+    # Update the field keys dict -- values will be overwritten and then
+    # ignored
+    self._validated_field_keys.update(validated_fields)
 
     if not self.errors:
       # No errors for this Record.
@@ -198,13 +211,6 @@ class Validator(record_processor.DbChunkProcessor):
       # parsed_fields, set status and add item to the log
       self.file.stats.validatedRecordsSuccess += 1
       record.updated_record.status = protos.Record.VALIDATED
-
-      # Coerce all the fields to strings, in case they aren't
-      record.updated_record.validatedFields.update({key: str(val) for key, val
-                                                in validated_fields.items()})
-      # Update the field keys dict -- values will be overwritten and then
-      # ignored
-      self._validated_field_keys.update(validated_fields)
 
       step_stat.success += 1
     else:
