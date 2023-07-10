@@ -293,6 +293,7 @@ class RecordProcessor(abc.ABC):
       source=self.log_source,
       level=protos.ProcessingLog.ERROR,
       errorCode=error_code,
+      apiLogId=getattr(exc, 'api_log_id', None),
       time=bson_format.now(),
       summary=summary,
       message=message,
