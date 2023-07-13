@@ -56,6 +56,24 @@ services:
       MONGO_USERNAME: dbadmin
       MONGO_PASSWORD: OrNH0I253OX9
       CELERY_REDIS_URL: redis://redis:6379/0
+
+  webui:
+    image: rivoli-webui
+    depends_on:
+      - mongo
+      - redis
+    ports:
+       - "3000:3000"
+    environment:
+      MONGO_ENDPOINT: mongo:27017
+      MONGO_DB: rivoli-prod
+      MONGO_USERNAME: dbadmin
+      MONGO_PASSWORD: OrNH0I253OX9
+      FILES_BASE: /usr/rivolifiles
+      FILES_UPLOAD: uploads
+    volumes:
+      - processor-files:/usr/rivolifiles
+
 volumes:
   processor-files:
   mongo-data:
