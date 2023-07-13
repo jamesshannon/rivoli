@@ -9,7 +9,6 @@ from rivoli.protobson import bson_format
 
 Msg = t.TypeVar('Msg', bound=message.Message)
 
-DB_NAME = 'testdb'
 mongo_client:  pymongo.MongoClient[dict[str, t.Any]]
 
 if config.get('MONGO_USERNAME') and config.get('MONGO_PASSWORD'):
@@ -26,8 +25,7 @@ elif config.get('MONGO_CERT'):
 else:
   raise ValueError('No valid mongodb config parameters')
 
-MDB_DB = mongo_client[DB_NAME]
-
+MDB_DB = mongo_client[config.get('MONGO_DB')]
 
 def get_db():
   """ Return a mongodb database (client). """
