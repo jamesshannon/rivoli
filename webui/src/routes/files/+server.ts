@@ -16,7 +16,10 @@ export async function POST({ request }) {
   let file = formData.get('file') as File;
 
   let tempFileName = `${Math.floor(Date.now() / 1000)}-${makeObjectId()}`;
-  let tempFilePath = path.join(env.FILES_BASE, env.FILES_UPLOAD, tempFileName);
+  let tempDir =  path.join(env.FILES_BASE, env.FILES_UPLOAD);
+  let tempFilePath = path.join(tempDir, tempFileName);
+
+  await fsp.mkdir(tempDir, {recursive: true});
 
   fsp.writeFile(tempFilePath, file.stream());
 
