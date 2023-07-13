@@ -1,0 +1,7 @@
+.venv
+**/__pycache__
+
+# Don't copy any pre-built protobufs
+src/rivoli/protos/*_pb2.*
+
+src/rivoli.egg-info
