@@ -1,0 +1,29 @@
+version: '3.1'
+
+services:
+
+  mongo:
+    image: mongo
+    restart: always
+    expose:
+      - "27019"
+    ports:
+      - "27018:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: dbadmin
+      MONGO_INITDB_ROOT_PASSWORD: OrNH0I253OX9
+      MONGO_INITDB_DATABASE: rivoli-prod
+    volumes:
+      - mongo-data:/data/db
+      - ./mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro
+
+  redis:
+    image: redis/redis-stack:latest
+    restart: always
+    expose:
+      - "6379"
+    ports:
+       - "6380:6379"
+
+volumes:
+  mongo-data:
