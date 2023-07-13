@@ -60,6 +60,8 @@ class RecordUploader(record_processor.DbChunkProcessor):
 
     self._uploaded_hashes: set[bytes]
     """ Set of hashes of matching successfully-uploaded records. """
+    self._chunk_hashes: set[bytes] = set()
+    """ Set of hashes of previous records in chunk. """
 
     # Retriable count is not part of the file.stats, so we track separately
     self._retriable_record_cnt = 0
@@ -177,7 +179,6 @@ class RecordUploader(record_processor.DbChunkProcessor):
     (including from other Files) then save them to the instance so that they can
     be checked during processing.
     """
-    # NB: This will not detect duplicates within the same chunk
     hashes = list(filter(None, [r.hash for r in records]))
     hashes_cursor = self.db.records.find(
         {'hash': {'$in': hashes}, 'status': {'$gte': protos.Record.UPLOADED}},
@@ -210,11 +211,18 @@ class RecordUploader(record_processor.DbChunkProcessor):
       self.file.stats.uploadedRecordsError += 1
       raise ValueError('uploadConfirmationId is not empty')
 
-    if record.hash in self._uploaded_hashes:
-      # A record with the same hash already exists
+    if (record.hash in self._uploaded_hashes
+        or record.hash in self._chunk_hashes):
+      # A record with the same hash already exists, either in the database or
+      # earlier in this chunk
       step_stat.failure += 1
       self.file.stats.uploadedRecordsError += 1
-      raise exceptions.ValidationError('Record data already uploaded')
+      msg = ('Record data already uploaded'
+             if record.hash in self._uploaded_hashes
+             else 'Duplicate record data found in previous row')
+      raise exceptions.ValidationError(msg)
+
+    self._chunk_hashes.add(record.hash)
 
      # Is this Record the beginning of a new batch?
     if self._groupby_field:
