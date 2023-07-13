@@ -10,7 +10,6 @@ import { createTask } from '$lib/helpers/celery';
 import { makeObjectId } from '$lib/helpers/utils';
 
 import { json } from '@sveltejs/kit';
-import { BSON } from 'bson';
 
 export async function POST({ request }) {
   let formData = await request.formData();
