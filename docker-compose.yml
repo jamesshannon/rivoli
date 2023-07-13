@@ -56,6 +56,7 @@ services:
       MONGO_USERNAME: dbadmin
       MONGO_PASSWORD: OrNH0I253OX9
       CELERY_REDIS_URL: redis://redis:6379/0
+      FILES: /usr/rivolifiles
 
   webui:
     image: rivoli-webui
