@@ -22,6 +22,9 @@ RUN python -m grpc_tools.protoc --proto_path=./protos \
 
 COPY build/third_party ./third_party
 
+COPY generate_function_entities.py ./
+COPY upsert_functions.py ./
+
 ENV PYTHONPATH /usr/rivoli/third_party:/usr/rivoli/src
 
 ENTRYPOINT [ "celery", "-A", "rivoli.celery_app" ]

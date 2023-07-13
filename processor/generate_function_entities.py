@@ -139,6 +139,9 @@ def get_callables(args: argparse.Namespace) -> list[protos.Function]:
   validators_base_mod = importlib.import_module(validators_base)
   validators_base_path = pathlib.Path(validators_base_mod.__path__[0])
 
+  print((f'Searching for sub-modules of {validators_base} '
+         f'in {validators_base_path}'))
+
   for file in validators_base_path.iterdir():
     if (not file.is_dir() and not file.name.startswith('_')
         and file.suffix == '.py'):
