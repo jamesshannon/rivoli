@@ -37,6 +37,9 @@ def scan(partner_id: str):
   input_dir = FILES_BASE_DIR / 'input'
   dest_dir = FILES_BASE_DIR / 'processed'
 
+  input_dir.mkdir(parents=True, exist_ok=True)
+  dest_dir.mkdir(parents=True, exist_ok=True)
+
   partner = admin_entities.get_partner(partner_id)
 
   logger.info('Scanning for files for Partner ID %s', partner_id)
