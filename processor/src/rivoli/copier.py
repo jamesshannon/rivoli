@@ -34,8 +34,13 @@ def setup_scan_tasks():
 @tasks.app.task
 def scan(partner_id: str):
   """ Search for new files for a partner and set them up for processing. """
-  input_dir = FILES_BASE_DIR / 'input'
   dest_dir = FILES_BASE_DIR / 'processed'
+
+  # Use configured input_dir or default to base_dir/input
+  if config.get('FILES_INPUT', strict=False):
+    input_dir = pathlib.Path(config.get('FILES_INPUT'))
+  else:
+    input_dir = FILES_BASE_DIR / 'input'
 
   input_dir.mkdir(parents=True, exist_ok=True)
   dest_dir.mkdir(parents=True, exist_ok=True)

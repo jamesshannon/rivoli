@@ -38,11 +38,13 @@ services:
       MONGO_PASSWORD: OrNH0I253OX9
       CELERY_REDIS_URL: redis://redis:6379/0
       FILES: /usr/rivolifiles
+      FILES_INPUT: /usr/rivolifiles_input
 
       TA_API_HOST: https://api.trueaccord.com
       TA_API_KEY: sk_live_i7qK3fP8SHeAntDz1gy75IUZ47a+QmMa5WqImA5Y
     volumes:
       - processor-files:/usr/rivolifiles
+      - ~/Documents/rivoli/input_files:/usr/rivolifiles_input
 
   scheduler:
     image: rivoli-backend
