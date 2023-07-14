@@ -94,8 +94,6 @@ class Copier(abc.ABC):
                   ) -> protos.File:
     """ Create a file record with metadata and rename local file. """
     # Get a seqential ID. We do this to keep the ID small for the Record rows
-    mydb = db.get_db()
-
     file_id = db.get_next_id('files')
 
     # Copy the tags from the Partner and the FileType
@@ -138,7 +136,7 @@ class Copier(abc.ABC):
         in open(local_file, 'r', encoding='UTF-8').readlines())
     file.stats.approximateRows = line_count
 
-    mydb.files.insert_one(bson_format.from_proto(file))
+    db.get_db().files.insert_one(bson_format.from_proto(file))
 
     new_name = self._file_longterm_name(orig_file, file_id)
     local_file.rename(local_file.with_name(new_name))

@@ -26,10 +26,8 @@ FieldList = list[t.Tuple[t.Tuple[int, int], str]]
 @tasks.app.task
 def parse(file_id: int) -> None:
   """ Parse a file that's already been loaded into the db. """
-  mydb = db.get_db()
-
   file = bson_format.to_proto(protos.File,
-      mydb.files.find_one({'_id': file_id}))
+      db.get_db().files.find_one({'_id': file_id}))
 
   # get the filetype config
   partner = admin_entities.get_partner(file.partnerId)

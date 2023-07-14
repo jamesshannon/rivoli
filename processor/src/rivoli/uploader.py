@@ -15,11 +15,9 @@ from rivoli.validation import handler
 from rivoli.function_helpers import exceptions
 from rivoli.function_helpers import helpers
 
-mydb = db.get_db()
-
 def get_file(file_id: int) -> protos.File:
   return bson_format.to_proto(protos.File,
-      mydb.files.find_one({'_id': file_id}))
+      db.get_db().files.find_one({'_id': file_id}))
 
 @tasks.app.task
 def upload(file_id: int) -> None:
