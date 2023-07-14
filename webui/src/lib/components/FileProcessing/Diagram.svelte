@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Anchor, Group, Node, Svelvet, Minimap, Controls } from 'svelvet';
+  import { Group, Svelvet } from 'svelvet';
 
   import type { FileType } from '$lib/rivoli/protos/config_pb';
   import type { Function } from '$lib/rivoli/protos/functions_pb';
@@ -7,8 +7,7 @@
 
   import {
     calculatePlacement,
-    makeGraph,
-    Node as NodeClass
+    makeGraph
   } from '$lib/helpers/processing_graph';
   import CreateNode from '../FileProcessingDiagram/CreateNode.svelte';
   import DefaultNode from '../FileProcessingDiagram/DefaultNode.svelte';
@@ -35,7 +34,6 @@
 
   let ns = makeGraph(filetype, functions);
   let prom = calculatePlacement(ns);
-  //[nodes, groupPosTuple]
 </script>
 
 <div class="local">

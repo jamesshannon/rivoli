@@ -13,12 +13,14 @@ import {
 let client: MongoClient;
 
 if (!env.mongo_authkey) {
-  client = new MongoClient(env.mongo_uri);
+  const auth = `${env.MONGO_USERNAME}:${env.MONGO_PASSWORD}`;
+  const uri = `mongodb://${auth}@${env.MONGO_ENDPOINT}`;
+  client = new MongoClient(uri);
 } else {
   client = new MongoClient('xxxx');
 }
 
-export const db = client.db('testdb');
+export const db = client.db(env.MONGO_DB);
 
 export async function getNextId(
   collection: string,

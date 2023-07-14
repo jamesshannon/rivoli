@@ -1,0 +1,79 @@
+version: '3.1'
+
+services:
+
+  mongo:
+    image: mongo
+    restart: always
+    expose:
+      - "27019"
+    ports:
+      - "27018:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: dbadmin
+      MONGO_INITDB_ROOT_PASSWORD: OrNH0I253OX9
+      MONGO_INITDB_DATABASE: rivoli-prod
+    volumes:
+      - mongo-data:/data/db
+      - ./mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro
+
+  redis:
+    image: redis/redis-stack:latest
+    restart: always
+    expose:
+      - "6379"
+    ports:
+       - "6380:6379"
+
+  processor:
+    image: rivoli-backend
+    command: worker
+    depends_on:
+      - mongo
+      - redis
+    environment:
+      MONGO_ENDPOINT: mongo:27017
+      MONGO_DB: rivoli-prod
+      MONGO_USERNAME: dbadmin
+      MONGO_PASSWORD: OrNH0I253OX9
+      CELERY_REDIS_URL: redis://redis:6379/0
+      FILES: /usr/rivolifiles
+
+      TA_API_HOST: https://api.trueaccord.com
+      TA_API_KEY: sk_live_i7qK3fP8SHeAntDz1gy75IUZ47a+QmMa5WqImA5Y
+    volumes:
+      - processor-files:/usr/rivolifiles
+
+  scheduler:
+    image: rivoli-backend
+    command: beat
+    depends_on:
+      - mongo
+      - redis
+    environment:
+      MONGO_ENDPOINT: mongo:27017
+      MONGO_DB: rivoli-prod
+      MONGO_USERNAME: dbadmin
+      MONGO_PASSWORD: OrNH0I253OX9
+      CELERY_REDIS_URL: redis://redis:6379/0
+
+  webui:
+    image: rivoli-webui
+    depends_on:
+      - mongo
+      - redis
+    ports:
+       - "3000:3000"
+    environment:
+      MONGO_ENDPOINT: mongo:27017
+      MONGO_DB: rivoli-prod
+      MONGO_USERNAME: dbadmin
+      MONGO_PASSWORD: OrNH0I253OX9
+      FILES_BASE: /usr/rivolifiles
+      FILES_UPLOAD: uploads
+    volumes:
+      - processor-files:/usr/rivolifiles
+
+volumes:
+  processor-files:
+  mongo-data:

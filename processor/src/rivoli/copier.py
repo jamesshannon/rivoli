@@ -25,6 +25,8 @@ FILES_BASE_DIR = pathlib.Path(config.get('FILES'))
 @tasks.app.task
 def setup_scan_tasks():
   """ Schedule a copy() task for each active partner. """
+  logger.info('Setting up scanning for %s partners',
+              len(admin_entities.get_all_partners()))
   for partner in admin_entities.get_all_partners().values():
     if partner.active:
       scan.delay(partner.id)

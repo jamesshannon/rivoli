@@ -12,7 +12,7 @@ import {
 
 export async function GET({ url, params }) {
   console.log(params);
-  return await handleGetRequestOutputRecords(
+  return await getRequestRecords(
     params.fileid,
     Object.fromEntries(url.searchParams)
   );
