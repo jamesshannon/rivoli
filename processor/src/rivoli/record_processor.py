@@ -375,8 +375,8 @@ class DbChunkProcessor(RecordProcessor):
     This is typically called by the child-implemented _process() and simply
     iterates through chunks (~1000 records) from the records generator. It then
     calls `_preprocess_chunk()` and then `_process_chunk()`.
-
     """
+
     while records_chunk := list(itertools.islice(records, self._db_chunk_size)):
       # Pre-process the *chunk*
       self._preprocess_chunk(records_chunk)
@@ -398,8 +398,6 @@ class DbChunkProcessor(RecordProcessor):
     pending_records: list[helpers.Record] = []
     exceptional_update: t.Optional[pymongo.UpdateOne]
 
-    #record_type: t.Optional[protos.RecordType] = None
-    import pdb
 
     try:
       for record in records:

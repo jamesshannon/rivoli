@@ -51,7 +51,7 @@ def next_step(file: protos.File, file_type: protos.FileType) -> None:
     _next_step_uploaded(file, file_type)
 
   elif file.status in (protos.File.REPORTING, ):
-    # A report has been finished
+    # A (single) report has been finished
     _next_step_reporting(file, file_type)
 
   else:

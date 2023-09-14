@@ -12,7 +12,7 @@ export async function handlePostApproveUpload(
   const log = makeLogMsg('Approved for uploading');
 
   // Update the file
-  // Filter on the expected status (WAITING..) to prevent unexepcted states
+  // Filter on the expected status (WAITING..) to prevent unexpected states
   // and race conditions
   const resp = await db.collection('files').updateOne(
     { _id: fileId, status: File_Status.WAITING_APPROVAL_TO_UPLOAD },

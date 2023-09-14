@@ -20,7 +20,8 @@ def get_db() -> database.Database[dict[str, t.Any]]:
   global _mongo_db
 
   if _mongo_client is None:
-    print('creating db')
+    print('creating db client')
+
     if config.get('MONGO_USERNAME') and config.get('MONGO_PASSWORD'):
       auth = f'{config.get("MONGO_USERNAME")}:{config.get("MONGO_PASSWORD")}'
       url = f'mongodb://{auth}@{config.get("MONGO_ENDPOINT")}'
