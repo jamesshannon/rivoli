@@ -20,7 +20,7 @@ def get_file(file_id: int) -> protos.File:
       db.get_db().files.find_one({'_id': file_id}))
 
 @tasks.app.task
-def upload(file_id: int) -> None:
+def upload(file_id: int, limit: t.Optional[int] = None) -> None:
   file = db.get_one_by_id('files', file_id, protos.File)
 
   # get the partner and filetype info
@@ -28,7 +28,7 @@ def upload(file_id: int) -> None:
   filetype = admin_entities.get_filetype(file.fileTypeId)
 
   uploader = RecordUploader(file, partner, filetype)
-  uploader.process()
+  uploader.process(limit)
 
   status_scheduler.next_step(file, filetype)
 
