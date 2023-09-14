@@ -5,9 +5,8 @@ import { File_Status } from '$lib/rivoli/protos/processing_pb';
 import { createTask } from '$lib/helpers/celery';
 import { makeLogMsg } from '$lib/helpers/utils';
 
-export async function handlePostApproveUpload(
-  fileId: number
-): Promise<{ [key: string]: any }> {
+export async function handlePostApproveUpload(fileId: number, reqBody: any
+    ): Promise<{ [key: string]: any }> {
   // this handles downgrading status to re-run uploads
   const log = makeLogMsg('Approved for uploading');
 
@@ -26,7 +25,9 @@ export async function handlePostApproveUpload(
     // Now that the file status is updated, schedule the next step
     // Python code has the logic to schedule the next step so we use that
     // rather than try to recreate
-    createTask('rivoli.status_scheduler', 'next_step_id', fileId);
+
+    const kwargs = reqBody.limit ? {limit: reqBody.limit} : undefined;
+    createTask('rivoli.status_scheduler', 'next_step_id', [fileId], kwargs);
 
     return {
       status: 'success',
@@ -40,17 +41,14 @@ export async function handlePostApproveUpload(
   };
 }
 
-export async function handlePostExecuteReport(
-  fileId: number,
-  reqBody: any
-): Promise<{ [key: string]: any }> {
+export async function handlePostExecuteReport(fileId: number, reqBody: any
+    ): Promise<{ [key: string]: any }> {
   const outputId = reqBody.outputId;
 
   createTask(
     'rivoli.reporter',
     'create_and_schedule_report_by_id',
-    fileId,
-    outputId
+    [fileId, outputId]
   );
 
   return {

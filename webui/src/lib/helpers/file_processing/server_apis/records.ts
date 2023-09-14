@@ -110,7 +110,7 @@ export async function handlePostRequestRevertRecords(
   // Now that the file status is updated, schedule the next step
   // Python code has the logic to schedule the next step so we use that
   // rather than try to recreate
-  createTask('rivoli.status_scheduler', 'next_step_id', fileId);
+  createTask('rivoli.status_scheduler', 'next_step_id', [fileId]);
 
   return {
       status: 'success',

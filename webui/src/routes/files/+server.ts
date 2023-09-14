@@ -26,10 +26,8 @@ export async function POST({ request }) {
   createTask(
     'rivoli.copier',
     'copy_from_upload',
-    file.name,
-    tempFileName,
-    formData.get('partnerId'),
-    formData.get('filetypeId')
+    [file.name, tempFileName, formData.get('partnerId'),
+        formData.get('filetypeId')]
   );
 
   return json({
