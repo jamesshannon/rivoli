@@ -38,7 +38,6 @@ class RecordUploader(record_processor.DbChunkProcessor):
   _fields_field = 'validatedFields'
   _only_process_record_status = protos.Record.VALIDATED
 
-  _success_status = protos.File.UPLOADED
   _error_status = protos.File.UPLOAD_ERROR
 
   _record_error_status = protos.Record.UPLOAD_ERROR
@@ -157,9 +156,18 @@ class RecordUploader(record_processor.DbChunkProcessor):
     # Uploading is finished. What's the next step?
     # For now the file goes to completed. In the future we might move to a
     # COORECT_ERRORS state or something
-    self.file.status = protos.File.COMPLETED
-    self.file.times.uploadingEndTime = bson_format.now()
-    self.file.log.append(self._make_log_entry(False, 'Uploaded records'))
+    if self._file_complete:
+      self.file.status = protos.File.UPLOADED
+      self.file.times.uploadingEndTime = bson_format.now()
+      log_msg = 'Uploaded records -- file complete'
+    else:
+      # If file wasn't complete but we're here then processing must be finished
+      # for some other reason (like a limit). There will be other reasons (like
+      # a temporary pause) but for now we use the RESTARTING enum
+      self.file.status = protos.File.UPLOADING_RESTARTING
+      log_msg = 'Uploaded records -- file not complete'
+
+    self.file.log.append(self._make_log_entry(False, log_msg))
     self._update_file(['status', 'log', 'times', 'stats'])
 
   def _retry_retriable_records(self):

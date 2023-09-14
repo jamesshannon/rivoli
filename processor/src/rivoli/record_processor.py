@@ -35,6 +35,13 @@ class RecordProcessor(abc.ABC):
     self.partner = partner
     self.filetype = filetype
 
+    # Record limiting, especially for testing scenarios.
+    # It might seem easiest to set _max_pending_records and/or
+    # _max_pending_updates to this value, but there are scenarios where the
+    # limit value could be greater than those values (e.g., a limit of 5000).
+    self._limit_records: t.Optional[int] = None
+    """ Processing records limit. None == unlimited. """
+
     self.recordtypes_map = {rt.id: rt for rt in filetype.recordTypes}
 
     self.record_prefix: int = self.file.id << 32
@@ -44,9 +51,17 @@ class RecordProcessor(abc.ABC):
     self._max_pending_updates = 1000
     """ Max updates to queue for writing to mongodb. """
 
+    self._processing_finished = False
+    """ Processing has sufficiently completed.
+    This could be because all records in the file have processed (the file is
+    complete) or because of other reasons that would cause processing of less
+    than a full file, other than errors. (E.g., a record limit) """
+    self._file_complete = False
+    """ Processing is finished because all records were processed. """
+
     self.db = db.get_db() # pylint: disable=invalid-name
 
-  def process(self):
+  def process(self, limit_records: t.Optional[int] = None):
     """ Process the records.
     This is the public entrypoint for record processing. It mostly calls
     `_process()` (which must be implemented on child classes) and handles any
@@ -56,6 +71,10 @@ class RecordProcessor(abc.ABC):
     """
     # This method simply calls the child class' _process() method, but
     # captures exceptions and add them to the file, which is a common pattern
+
+    if limit_records:
+      self._limit_records = limit_records
+
     try:
       self._process()
 
@@ -369,6 +388,16 @@ class DbChunkProcessor(RecordProcessor):
     for record in self.db.records.find(filter_, **kwargs):
       yield bson_format.to_proto(protos.Record, record)
 
+  def process(self, limit_records: t.Optional[int] = None):
+    """ Process the records. """
+    if limit_records:
+      self._limit_records = limit_records
+      # If limit_records is set then re-run calculations for max_pending_records
+      self._set_max_pending_records(
+          max(limit_records, self._max_pending_records))
+
+    super().process()
+
   def _process_records(self, records: t.Generator[protos.Record, None, None],
       file_update_fields: t.Optional[list[str]] = None) -> None:
     """ Process iterator of records in chunks.
@@ -382,6 +411,15 @@ class DbChunkProcessor(RecordProcessor):
       self._preprocess_chunk(records_chunk)
       # Process the *chunk*
       self._process_chunk(records_chunk)
+
+      if self._processing_finished:
+        break
+
+    else:
+      # Assume the file is complete if the while wasn't broken (and no
+      # exception was raised).
+      self._file_complete = True
+      self._processing_finished = True
 
   def _preprocess_chunk(self, records: list[protos.Record]) -> None:
     """ Pre-process the chunk of records, if applicable. """
@@ -398,7 +436,12 @@ class DbChunkProcessor(RecordProcessor):
     pending_records: list[helpers.Record] = []
     exceptional_update: t.Optional[pymongo.UpdateOne]
 
+    processed_records = 0
 
+    # TODO: Line ~525 catches any records which are still pending after the
+    # loop and processes it. That's good, but it does it outside of the main
+    # try/except loop, which means that we don't make updates to the record
+    # (specifically the log)
     try:
       for record in records:
         # RecordType needs to be be the same as all previous RecordTypes. For
@@ -472,13 +515,18 @@ class DbChunkProcessor(RecordProcessor):
 
           # TOOD: This doesn't update the failed count
 
-          if isinstance(exc,
+          if not isinstance(exc,
                 (exceptions.ValidationError, exceptions.ExecutionError)):
-            # Record-level exception. Continue the loop
-            continue
+            # File-level exception.
+            raise exc
 
-          # File-level exception.
-          raise exc
+          # Otherwise it's a record-level exception so we continue the loop
+
+        # End of the records for loop
+        processed_records += 1
+        if self._limit_records and processed_records >= self._limit_records:
+          self._processing_finished = True
+          break
 
       # If the chunk is empty and there are still pending records to process --
       # there should typically be at least one -- then do that now and add to
