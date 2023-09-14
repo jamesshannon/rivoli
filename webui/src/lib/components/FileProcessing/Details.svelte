@@ -32,7 +32,7 @@
     </Row>
     <Row>
       <Column>
-        <h5>Tags</h5>
+        <h5>Parameters</h5>
         <PrettyJson json={file.tags} />
       </Column>
       <Column>
