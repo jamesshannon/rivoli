@@ -27,7 +27,7 @@ class Field(t.NamedTuple):
   """ Fields are part of the Record and passed between functions. """
   key: str
   """ Key within the record. """
-  typ: str
+  typ: str = 'STRING'
   """ Expected type. Data will be coerced, if possible. """
   out_ephemeral: bool = False
   """ Output fields only: This is an ephemeral field; delete after validation.
@@ -56,7 +56,19 @@ class Record(collections.UserDict[str, t.Any]):
     self.tags = tags
     """ Dict of parsed tags from Partner + File """
 
-  def __bool__(self):
+  def get_record_or_tag(self, key: str) -> str:
+    """ Get item from record and fall back to the partner + file tags.
+    Returns KeyError if key is not found in either.
+    """
+    try:
+      return self[key]
+
+    except KeyError:
+      pass
+
+    return self.tags[key]
+
+  def __bool__(self) -> bool:
     return True
 
 def register_func(function_type: FunctionType, deprecated: bool = False,
