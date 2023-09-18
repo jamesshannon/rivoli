@@ -14,6 +14,7 @@ from rivoli.function_helpers import exceptions
 from rivoli.function_helpers import helpers
 from rivoli.validation import handler
 from rivoli.validation import typing
+from rivoli.utils import processing
 from rivoli.utils import tasks
 
 # Disable pyright checks due to Celery
@@ -59,6 +60,9 @@ class Validator(record_processor.DbChunkProcessor):
     self.errors: list[protos.ProcessingLog] = []
     """ Accumulation of a Record's errors. """
 
+    self._functions: dict[str, protos.Function] = {}
+    self._all_fields: list[protos.Function.Field] = []
+
     self._field_name_ids: dict[str, str] = {}
     """ Map of field names to field IDs. """
 
@@ -93,6 +97,8 @@ class Validator(record_processor.DbChunkProcessor):
           function_ids.add(validation.functionId)
 
     self._functions = admin_entities.get_functions_by_ids(function_ids)
+    self._all_fields = [field for func in self._functions.values()
+                        for field in func.fieldsOut]
 
     self._clear_stats('VALIDATE')
     del self.file.validatedColumns[:]
@@ -173,6 +179,9 @@ class Validator(record_processor.DbChunkProcessor):
         ss_record_func.input += 1
 
         try:
+          fields = self._functions[cfg.functionId].fieldsIn
+          record.update(processing.coerce_record_fields(record.data, fields))
+
           validated_fields = self._validate_record(cfg, record)
           ss_record_func.success += 1
         except Exception as exc: # pylint: disable=broad-exception-caught
@@ -198,9 +207,10 @@ class Validator(record_processor.DbChunkProcessor):
     # Clear the *record*-level field values, in case we're revalidating
     record.updated_record.validatedFields.clear()
 
-    # Coerce all the fields to strings, in case they aren't
-    record.updated_record.validatedFields.update({key: str(val) for key, val
-                                              in validated_fields.items()})
+    record.updated_record.validatedFields.update(
+        processing.prep_record_fields_for_db(validated_fields,
+                                             self._all_fields))
+
     # Update the field keys dict -- values will be overwritten and then
     # ignored
     self._validated_field_keys.update(validated_fields)

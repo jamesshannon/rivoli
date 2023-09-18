@@ -11,6 +11,7 @@ from rivoli import protos
 from rivoli import record_processor
 from rivoli import status_scheduler
 from rivoli.utils import tasks
+from rivoli.utils import processing
 from rivoli.validation import handler
 from rivoli.function_helpers import exceptions
 from rivoli.function_helpers import helpers
@@ -63,6 +64,8 @@ class RecordUploader(record_processor.DbChunkProcessor):
     # Retriable count is not part of the file.stats, so we track separately
     self._retriable_record_cnt = 0
     """ Numer of retriable from this run. """
+
+    self._functions: dict[str, protos.Function] = {}
 
   def _process(self):
     """ Upload the records. """
@@ -265,7 +268,12 @@ class RecordUploader(record_processor.DbChunkProcessor):
     # function, or c) single record + batch function. (A) and (C) expect lists
     # while (B) expects a single helpers.Record
     # Value could be a list or a single Record
-    value: t.Union[list[helpers.Record], helpers.Record] = records
+    # Do any necessary coersion while we're assigning
+    value: t.Union[list[helpers.Record], helpers.Record] = [
+        t.cast(helpers.Record,
+               processing.coerce_record_fields(record, upload_func.fieldsIn))
+        for record in records]
+
 
     if upload_func.type == protos.Function.RECORD_UPLOAD:
       # Assert that this is not (d) -- batch record + single function
