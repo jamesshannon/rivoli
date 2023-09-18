@@ -15,6 +15,11 @@ from rivoli.function_helpers import exceptions
 
 TCallable = t.TypeVar("TCallable", bound=t.Callable)
 
+class DataType(enum.Enum):
+  """ Parameter types """
+  STRING = protos.Function.STRING
+  DICT = protos.Function.DICT
+
 class FunctionType(enum.Enum):
   """ Function types """
   FIELD_VALIDATION = protos.Function.FIELD_VALIDATION
@@ -27,7 +32,7 @@ class Field(t.NamedTuple):
   """ Fields are part of the Record and passed between functions. """
   key: str
   """ Key within the record. """
-  typ: str = 'STRING'
+  typ: DataType = DataType.STRING
   """ Expected type. Data will be coerced, if possible. """
   out_ephemeral: bool = False
   """ Output fields only: This is an ephemeral field; delete after validation.
@@ -39,7 +44,7 @@ class Record(collections.UserDict[str, t.Any]):
   steps.
   """
   def __init__(self, update_record: protos.Record, orig_record: protos.Record,
-      record_type: protos.RecordType, data: dict[str, str],
+      record_type: protos.RecordType, data: dict[str, t.Any],
       tags: dict[str, str]):
     super().__init__(data)
 

@@ -5,8 +5,6 @@ import unittest
 from rivoli import protos
 from rivoli.validation.handlers import python_function
 
-import tests
-
 # pylint: disable=protected-access
 # pyright: reportPrivateUsage=false
 

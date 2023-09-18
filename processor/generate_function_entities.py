@@ -17,11 +17,15 @@ from rivoli.protobson import bson_format
 from rivoli.validation import typing
 from rivoli import protos
 
+# This dict maps from the inspect module's Parameter instance(s) to a protobuf
+# enum. The inspect module signature doesn't return a `type` but instead returns
+# a GenericAlias, so it's best to get the name attribute.
 PYTHON_INSPECT_TYPE_MAP = {
   'str': protos.Function.STRING,
   'int': protos.Function.INTEGER,
   'float': protos.Function.FLOAT,
   'bool': protos.Function.BOOLEAN,
+  'dict': protos.Function.DICT,
 }
 
 class _Param(t.NamedTuple):
@@ -126,10 +130,20 @@ def get_parameters(sig: inspect.Signature, function_type: helpers.FunctionType
       parameters.append(protos.Function.Parameter(
           variableName=param.name,
           type=PYTHON_INSPECT_TYPE_MAP[param.annotation.__name__],
-          defaultValue=str(default) if default else None,
+          defaultValue=str(default) if default is not None else None,
       ))
 
   return parameters
+
+def get_fields(fields: list[helpers.Field]) -> list[protos.Function.Field]:
+  """ Get the list of defined fields and return list of proto fields.
+  Input and output fields are defined in the python register_func() decorator,
+  converted to a proto message, and saved to the database. Fields are part of
+  the parsed record (as opposed to function parameters).
+  """
+  return [protos.Function.Field(key=field.key, type=field.typ.value,
+                                isOutputEphemeral=field.out_ephemeral)
+          for field in fields]
 
 def get_callables(args: argparse.Namespace) -> list[protos.Function]:
   """ Generate proto Callables from all modules a directory. """
@@ -186,6 +200,9 @@ def get_callables(args: argparse.Namespace) -> list[protos.Function]:
             description=docs,
 
             tags=symbol._tags,
+
+            fieldsIn=get_fields(symbol._fields_in),
+            fieldsOut=get_fields(symbol._fields_out),
 
             pythonFunction=full_function_name,
             parameters=params,

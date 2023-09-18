@@ -13,9 +13,8 @@ HANDLER_MODULE_MAP: dict[str, types.ModuleType] = {
 }
 
 def call_function(function_type: protos.Function.FunctionType,
-    cfg: protos.FunctionConfig,
-    function: protos.Function, *args: t.Any, **kwargs: t.Any,
-    ) -> typing.ValReturn:
+    cfg: protos.FunctionConfig, function: protos.Function,
+    *args: t.Any, **kwargs: t.Any) -> typing.ValReturn:
   """ Execute a "function" through a handler and return the value.
   Functions could be python functions, SQL statements, etc, and are configured
   in the Function message. The expected arguments and return value will be
