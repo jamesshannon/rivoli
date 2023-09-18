@@ -47,6 +47,8 @@ class Parser(record_processor.DbChunkProcessor):
   _success_status = protos.File.PARSED
   _error_status = protos.File.PARSE_ERROR
 
+  _record_error_status = protos.Record.PARSE_ERROR
+
   _step_stat_prefix = 'PARSE'
 
   def __init__(self, file: protos.File, partner: protos.Partner,

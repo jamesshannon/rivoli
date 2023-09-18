@@ -179,8 +179,8 @@ class RecordUploader(record_processor.DbChunkProcessor):
 
     # 1) If pause, then set status and create a new task immediately
     # 1) Retry records, then set to retry_pause and create a new task
-    # 2) Set to "pause" then create a new task
-    # or 3) set to done and end task
+    # 2) Set to "pause" then create a new task, or
+    # 3) set to done and end task
 
   def _preprocess_chunk(self, records: list[protos.Record]) -> None:
     """ Pre-process the chunk of records and look for duplicates.
@@ -214,8 +214,8 @@ class RecordUploader(record_processor.DbChunkProcessor):
       return None
 
     if record.uploadConfirmationId:
-      # This should not happen, but since we the parent method already filtered
-      # on status then something might be wrong internally
+      # This should not happen, since the calling method already filtered
+      # on status. If this happens then something might be wrong internally
       step_stat.failure += 1
       self.file.stats.uploadedRecordsError += 1
       raise ValueError('uploadConfirmationId is not empty')
@@ -248,7 +248,13 @@ class RecordUploader(record_processor.DbChunkProcessor):
   def _process_record(self, records: list[helpers.Record]
       ) -> t.Optional[pymongo.UpdateMany]:
     # A batch should never have more than one unique RecordType
+    num_record_types = len({r.record_type.id for r in records})
+    if num_record_types > 1:
+      raise exceptions.ConfigurationError(
+          f'Batch has {num_record_types} unique record types')
+
     record_type = records[0].record_type
+
     # Get the upload function for this RecordType
     upload_func = self._functions[record_type.upload.functionId]
 

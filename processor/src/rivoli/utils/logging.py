@@ -21,6 +21,10 @@ def get_logger(name: str) -> logging.Logger:
 
   logger = t.cast(logging.Logger, log.get_task_logger(name))
   logger.setLevel(logging.DEBUG)
+
+  urllib_logger = logging.getLogger('urllib3')
+  urllib_logger.setLevel(logging.INFO)
+
   return logger
 
 class CeleryTaskFormatter(logging.Formatter):

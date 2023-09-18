@@ -385,7 +385,9 @@ class DbChunkProcessor(RecordProcessor):
     """
     filter_ = self._all_records_filter() | filter_
 
-    for record in self.db.records.find(filter_, **kwargs):
+    for record in self.db.records.find(filter_, **kwargs).sort('_id'):
+      # Sort by _id -- we were getting apparent repeated records and this is the only possibility
+      # Otherwise might have to create a session and set the snapshot option
       yield bson_format.to_proto(protos.Record, record)
 
   def process(self, limit_records: t.Optional[int] = None):
@@ -438,6 +440,8 @@ class DbChunkProcessor(RecordProcessor):
 
     processed_records = 0
 
+    record_h = None
+
     # TODO: Line ~525 catches any records which are still pending after the
     # loop and processes it. That's good, but it does it outside of the main
     # try/except loop, which means that we don't make updates to the record
@@ -483,7 +487,12 @@ class DbChunkProcessor(RecordProcessor):
           pending_records.append(record_h)
 
         except Exception as exc:
-          logger.debug('Uncaptured exception in Record processing function')
+          if record_h:
+            logger.debug(
+                ('Uncaptured exception in Record processing '
+                 'for record id %s: %s'), record_h.id, exc)
+          else:
+            logger.debug('Uncaptured exception in Record processing: %s', exc)
           # Uncaptured exception from a Record processing function. We update
           # the Record with the error and possibly raise the exception if it's
           # a File-level exception. In some cases the error has already been
@@ -533,6 +542,7 @@ class DbChunkProcessor(RecordProcessor):
       # pending_updates which will get updated as part of the finally block
       if pending_records:
         pending_updates.append(self._process_record(pending_records))
+        pending_records.clear()
 
     finally:
       pending_updates = list(filter(None, pending_updates))
