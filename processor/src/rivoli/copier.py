@@ -137,9 +137,8 @@ class Copier(abc.ABC):
         message='File Created'))
 
     # Get # of lines from the file
-    line_count = sum(1 for _
-        in open(local_file, 'r', encoding='UTF-8').readlines())
-    file.stats.approximateRows = line_count
+    with open(local_file, 'r', encoding='UTF-8', errors='surrogateescape') as fobj:
+      file.stats.approximateRows = sum(1 for _ in fobj)
 
     db.get_db().files.insert_one(bson_format.from_proto(file))
 
