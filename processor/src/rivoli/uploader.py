@@ -8,7 +8,7 @@ from rivoli.protobson import bson_format
 from rivoli import admin_entities
 from rivoli import db
 from rivoli import protos
-from rivoli import record_processor
+from rivoli.record_processor import db_chunk_processor
 from rivoli import status_scheduler
 from rivoli.utils import tasks
 from rivoli.utils import processing
@@ -33,7 +33,7 @@ def upload(file_id: int, limit: t.Optional[int] = None) -> None:
 
   status_scheduler.next_step(file, filetype)
 
-class RecordUploader(record_processor.DbChunkProcessor):
+class RecordUploader(db_chunk_processor.DbChunkProcessor):
   """ Class to upload records. """
   log_source = protos.ProcessingLog.UPLOADER
   _fields_field = 'validatedFields'

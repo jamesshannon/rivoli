@@ -8,13 +8,12 @@ import pathlib
 import typing as t
 import unicodedata
 
-from rivoli import protos
-from rivoli.protobson import bson_format
-
 from rivoli import admin_entities
-from rivoli import record_processor
+from rivoli import protos
+from rivoli.record_processor import record_processor
 from rivoli import status_scheduler
 from rivoli.function_helpers import exceptions
+from rivoli.protobson import bson_format
 from rivoli.utils import logging
 from rivoli.utils import tasks
 

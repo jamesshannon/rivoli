@@ -8,7 +8,7 @@ from rivoli import admin_entities
 from rivoli.protobson import bson_format
 from rivoli import protos
 from rivoli import db
-from rivoli import record_processor
+from rivoli.record_processor import db_chunk_processor
 from rivoli import status_scheduler
 from rivoli.function_helpers import exceptions
 from rivoli.function_helpers import helpers
@@ -38,7 +38,7 @@ def validate(file_id: int) -> None:
 
   status_scheduler.next_step(file, filetype)
 
-class Validator(record_processor.DbChunkProcessor):
+class Validator(db_chunk_processor.DbChunkProcessor):
   """ Class to validate records.
   No need to subclass this as validation will not differ by file type. """
   log_source = protos.ProcessingLog.VALIDATOR

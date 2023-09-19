@@ -10,7 +10,7 @@ from rivoli.protobson import bson_format
 from rivoli import protos
 
 from rivoli import db
-from rivoli import record_processor
+from rivoli.record_processor import db_chunk_processor
 from rivoli.utils import tasks
 from rivoli import validator
 from rivoli.function_helpers import helpers
@@ -38,7 +38,7 @@ def parse(file_id: int) -> None:
 
   validator.validate.delay(file_id)
 
-class Parser(record_processor.DbChunkProcessor):
+class Parser(db_chunk_processor.DbChunkProcessor):
   """ Generic Parser """
   log_source = protos.ProcessingLog.PARSER
 

@@ -1,7 +1,7 @@
 """ Unit tests for rivoli.record_processor. """
 import unittest
 
-from rivoli import record_processor
+from rivoli.record_processor import record_processor
 from rivoli.function_helpers import exceptions
 from rivoli import protos
 
