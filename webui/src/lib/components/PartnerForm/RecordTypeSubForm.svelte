@@ -40,9 +40,15 @@
 
   function addNewFieldType() {
     const fieldId = makeObjectId();
-    recordtype.fieldTypes.push(
-      new FieldType({ id: fieldId, active: true })
-    );
+    const ft = new FieldType({ id: fieldId, active: true });
+    if (filetype.format == FileType_Format.FLAT_FILE_DELIMITED && !filetype.hasHeader) {
+      ft.fieldLocation.case = 'columnIndex';
+      ft.fieldLocation.value = Math.max(
+          Math.max(... recordtype.fieldTypes.map(
+              (ft) => ft.fieldLocation.value as number + 1)),
+          1);
+    };
+    recordtype.fieldTypes.push(ft);
     recordtype.fieldTypes = recordtype.fieldTypes;
 
     // Automatically expand the new field type row

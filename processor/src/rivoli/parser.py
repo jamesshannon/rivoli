@@ -114,8 +114,10 @@ class DelimitedParser(Parser):
         fields: dict[int, str] = {field.columnIndex: field.name for field
                                   in recordtype.fieldTypes if field.active}
         self.fieldnames[recordtype.id] = [None] * max(fields.keys())
+
         for idx, fieldname in fields.items():
-          self.fieldnames[recordtype.id][idx] = fieldname
+          # Field indices entered in UI are 1-based
+          self.fieldnames[recordtype.id][idx - 1] = fieldname
 
       # Add any shared_key(s)
       self.shared_keys[recordtype.id] = [field.name for field
