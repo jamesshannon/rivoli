@@ -242,6 +242,9 @@ class RecordUploader(db_chunk_processor.DbChunkProcessor):
         self._should_process_records = True
 
       self._current_groupby_value = record_value
+    # Do any necessary coercion
+    uploadFunc = self._functions[record_h.record_type.upload.functionId]
+    record_h = processing.coerce_record_fields(record_h, uploadFunc.fieldsIn)
 
     return record_h
 
@@ -275,10 +278,6 @@ class RecordUploader(db_chunk_processor.DbChunkProcessor):
     # while (B) expects a single helpers.Record
     # Value could be a list or a single Record
     # Do any necessary coersion while we're assigning
-    value: t.Union[list[helpers.Record], helpers.Record] = [
-        t.cast(helpers.Record,
-               processing.coerce_record_fields(record, upload_func.fieldsIn))
-        for record in records]
 
 
     if upload_func.type == protos.Function.RECORD_UPLOAD:
