@@ -26,7 +26,9 @@ def call_function(function_type: protos.Function.FunctionType,
   signatures:
     FIELD_VALIDATION: [value: str] -> str
     RECORD_VALIDATION: [value: Record] -> dict[str, str] | Record | None
-    RECORD_UPLOAD: [value: Record] -> str
+    RECORD_UPLOAD: [value: list[Record]] -> str
+      NB: The function itself expects a single Record so it's the handler's
+      responsibility to break that out.
     RECORD_UPLOAD_BATCH: [value: list[Record]] -> str
   See `typing` for more information.
   All functions can raise a ValidationError, ExecutionError,

@@ -274,11 +274,9 @@ class RecordUploader(db_chunk_processor.DbChunkProcessor):
     # a single Record.
 
     # We could have a) batch records + batch function, b) single record + single
-    # function, or c) single record + batch function. (A) and (C) expect lists
-    # while (B) expects a single helpers.Record
-    # Value could be a list or a single Record
-    # Do any necessary coersion while we're assigning
-
+    # function, or c) single record + batch function. Functions for (A) and (C)
+    # expect list while (B) expects a single record, but the Python handlers
+    # take a list and will pass along a single record in the case of (B).
 
     if upload_func.type == protos.Function.RECORD_UPLOAD:
       # Assert that this is not (d) -- batch record + single function
@@ -291,9 +289,6 @@ class RecordUploader(db_chunk_processor.DbChunkProcessor):
         raise exceptions.ConfigurationError(
             f'Not in batch mode but got {len(records)} records')
 
-      # Set the value to the first (and only) record
-      value = records[0]
-
     # If this is a batch update then we need a single representative record
     # from which to set the fields and create the changes. If this is a
     # non-batch update then we could use the actual Record message though we
@@ -304,7 +299,7 @@ class RecordUploader(db_chunk_processor.DbChunkProcessor):
     try:
       # Let the configured function type determine what the handler does
       response = handler.call_function(upload_func.type, record_type.upload,
-          upload_func, value)
+          upload_func, records)
 
       # Success
       a_record.status = protos.Record.UPLOADED
