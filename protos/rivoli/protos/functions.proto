@@ -96,6 +96,7 @@ message Function {
     BOOLEAN = 4;
     ENUM = 5;
     DICT = 6;
+    DATE = 7;
   }
 }
 

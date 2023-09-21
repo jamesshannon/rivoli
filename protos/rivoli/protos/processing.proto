@@ -179,6 +179,7 @@ message ProcessingLog {
 
   string field = 6;
   string functionId = 7;
+  uint64 recordId = 12;
 
   string stackTrace = 9;
 

@@ -18,6 +18,8 @@ TCallable = t.TypeVar("TCallable", bound=t.Callable)
 class DataType(enum.Enum):
   """ Parameter types """
   STRING = protos.Function.STRING
+  INTEGER = protos.Function.INTEGER
+  FLOAT = protos.Function.FLOAT
   DICT = protos.Function.DICT
 
 class FunctionType(enum.Enum):

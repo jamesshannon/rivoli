@@ -128,7 +128,7 @@ class DelimitedParser(Parser):
     self._clear_stats('PARSE')
     self.file.times.parsingStartTime = bson_format.now()
 
-    self._process_records(self._get_all_records())
+    self._process_records(self._get_all_records(protos.Record.LOADED))
 
     # Final update to the File record
     self.file.log.append(self._make_log_entry(False, 'Parsed records'))

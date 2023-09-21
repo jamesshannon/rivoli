@@ -246,6 +246,7 @@ class Validator(db_chunk_processor.DbChunkProcessor):
     # exception (with the record).
     if file_exception:
       file_exception.update = update # pyright: ignore[reportGeneralTypeIssues]
+      file_exception.rivoli_record_id = record.id # pyright: ignore[reportGeneralTypeIssues]
       raise file_exception
 
     return update
