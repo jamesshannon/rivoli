@@ -134,7 +134,7 @@ class DelimitedParser(Parser):
     self.file.log.append(self._make_log_entry(False, 'Parsed records'))
 
   def _process_record(self, records: list[helpers.Record]
-      ) -> t.Optional[t.Union[pymongo.UpdateOne, pymongo.UpdateMany]]:
+      ) -> t.Sequence[pymongo.UpdateOne]:
     assert len(records) == 1
     record = records[0].updated_record
 
@@ -231,7 +231,7 @@ class FixedWidthParser(Parser):
     return {f[1]: line[f[0][0] : f[0][1]].strip() for f in fields}
 
   def _process_record(self, records: list[helpers.Record]
-      ) -> t.Optional[t.Union[pymongo.UpdateOne, pymongo.UpdateMany]]:
+      ) -> t.Sequence[pymongo.UpdateOne]:
     assert len(records) == 1
     record = records[0].updated_record
 

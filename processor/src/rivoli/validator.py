@@ -119,7 +119,7 @@ class Validator(db_chunk_processor.DbChunkProcessor):
   # Will also need an entrypoint to call this so that the UI can try to
   # (re-)validate a Record after a manual edit
   def _process_record(self, records: list[helpers.Record]
-      ) -> t.Optional[pymongo.UpdateOne]:
+      ) -> t.Sequence[pymongo.UpdateOne]:
     assert len(records) == 1
     record = records[0]
     raw_record = record.updated_record
@@ -199,7 +199,6 @@ class Validator(db_chunk_processor.DbChunkProcessor):
         # removes a field then we don't want to keep it
         record.clear()
         record.update(validated_fields)
-
 
     # Previously we only set validatedFields if there were no errors, but
     # it's helpful to see the values from previous validation steps

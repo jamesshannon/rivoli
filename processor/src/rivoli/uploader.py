@@ -249,7 +249,7 @@ class RecordUploader(db_chunk_processor.DbChunkProcessor):
     return record_h
 
   def _process_record(self, records: list[helpers.Record]
-      ) -> t.Optional[pymongo.UpdateMany]:
+      ) -> pymongo.UpdateMany:
     # A batch should never have more than one unique RecordType
     num_record_types = len({r.record_type.id for r in records})
     if num_record_types > 1:

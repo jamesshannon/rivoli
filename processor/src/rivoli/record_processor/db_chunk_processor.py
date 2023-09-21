@@ -18,6 +18,24 @@ logger = logging.get_logger(__name__)
 
 class DbChunkProcessor(record_processor.RecordProcessor):
   """ Abstract class to handle processing database records in chunks. """
+MONGO_UPDATE = pymongo.UpdateOne | pymongo.UpdateMany
+
+T = t.TypeVar('T')
+
+def _listify(inp: list[T] | T | None) -> list[T]:
+  """ Create a list of T out of a single T, a list of T, or None (removed).
+  This is used for accepting a variety of ways of returning T and the output is
+  suitable for passing to a list's extend(). None is accepted, but removed.
+  """
+  if inp is None:
+    return []
+
+  if not isinstance(inp, list):
+    return [inp]
+
+  # At this point inp must be a single instance of the value but pyright is
+  # getting confused
+  return inp # pyright: ignore[reportUnknownVariableType]
   _fields_field: str = ''
   """ Name of the field on the Record which stores *existing* record data. """
   _only_process_record_status: t.Union['protos.Record.Status', t.Literal[False]]
@@ -123,15 +141,13 @@ class DbChunkProcessor(record_processor.RecordProcessor):
 
   def _process_chunk(self, records: list[protos.Record]) -> None:
     """ Process a chunk of records. """
-    pending_updates: list[t.Optional[
-        t.Union[pymongo.UpdateOne, pymongo.UpdateMany]]] = []
+    pending_updates: list[MONGO_UPDATE] = []
     last_update = time.time()
 
     record: t.Optional[protos.Record] = None
 
     # Records pending processing. Will often be max of 1 item.
     pending_records: list[helpers.Record] = []
-    exceptional_update: t.Optional[pymongo.UpdateOne]
 
     processed_records = 0
 
@@ -155,7 +171,8 @@ class DbChunkProcessor(record_processor.RecordProcessor):
           if (self._should_process_records
               or len(pending_records) >= self._max_pending_records):
             # Process the (batch?) of records. E.g. validate or upload
-            pending_updates.append(self._process_record(pending_records))
+            pending_updates.extend(
+                _listify(self._process_record(pending_records)))
 
             pending_records.clear()
             self._should_process_records = False
@@ -165,12 +182,10 @@ class DbChunkProcessor(record_processor.RecordProcessor):
           # it's been over 30 seconds
           if (len(pending_updates) >= self._max_pending_updates
               or time.time() > last_update + 30):
-            pending_updates = list(filter(None, pending_updates))
             logger.debug('Updating %s documents in db', len(pending_updates))
 
-            if pending_updates:
-              self.db.records.bulk_write(pending_updates, ordered=False)
-              pending_updates.clear()
+            self.db.records.bulk_write(pending_updates, ordered=False)
+            pending_updates.clear()
 
             # Always update the file when updating record (in the db)
             self._update_file(['status', 'log', 'times', 'stats'])
@@ -196,14 +211,14 @@ class DbChunkProcessor(record_processor.RecordProcessor):
           # attached then we should automatically create one. There shouldn't be
           # any situations in which an exception occurs (in this loop)
           # but we don't want to attach it to the Record.
-          exceptional_update = t.cast(t.Optional[pymongo.UpdateOne],
+          exceptional_update = t.cast(list[MONGO_UPDATE] | None,
               getattr(exc, 'update', None))
           if exceptional_update:
             # Exception already has an attached update so nothing to add
             # At the same time the fact that called code was sophisticated
             # enough to attach and update but still raised the exception means
             # that this a File-level exception
-            pending_updates.append(exceptional_update)
+            pending_updates.extend(_listify(exceptional_update))
 
             raise exc
 
@@ -214,7 +229,7 @@ class DbChunkProcessor(record_processor.RecordProcessor):
           record.log.append(log)
           record.recentErrors.append(log)
 
-          pending_updates.append(
+          pending_updates.extend(
               self._make_update(record, ['status', 'log', 'recentErrors']))
 
           # TOOD: This doesn't update the failed count
@@ -236,12 +251,10 @@ class DbChunkProcessor(record_processor.RecordProcessor):
       # there should typically be at least one -- then do that now and add to
       # pending_updates which will get updated as part of the finally block
       if pending_records:
-        pending_updates.append(self._process_record(pending_records))
+        pending_updates.extend(_listify(self._process_record(pending_records)))
         pending_records.clear()
 
     finally:
-      pending_updates = list(filter(None, pending_updates))
-
       if pending_updates:
         # Write the batch of updates to the database. This will include any
         # updates from the loop, plus possible remaining update after the loop
@@ -304,17 +317,22 @@ class DbChunkProcessor(record_processor.RecordProcessor):
 
   @abc.abstractmethod
   def _process_record(self, records: list[helpers.Record]
-      ) -> t.Optional[t.Union[pymongo.UpdateOne, pymongo.UpdateMany]]:
+      ) -> list[MONGO_UPDATE] | MONGO_UPDATE | None:
     """ Process a (batch of) records.
     This is where the magic happens. An UpdateOne or UpdateMany should be
     returned with appropriate record update.
     Most errors should only affect the record(s), in which case they should
     be part of the DB update. If there are fatal errors then the exception
-    should be raised withh the UpdateOne/UpdateMany as part of the exception.
+    should be raised with the UpdateOne/UpdateMany as part of the exception.
     """
 
-  def _make_update(self, record: protos.Record, update_fields: list[str]
-      ) -> pymongo.UpdateOne:
-    """ Create a DB UpdateOne record which can be batched up. """
-    return pymongo.UpdateOne(
-        *bson_format.get_update_args(record, update_fields))
+  def _make_update(self, record: ProtoRecordGroup | protos.Record,
+      update_fields: list[str]) -> list[pymongo.UpdateOne]:
+    """ Create a DB UpdateOne(s) record which can be batched up. """
+    if isinstance(record, protos.Record):
+      # Single record
+      return [pymongo.UpdateOne(*bson_format.get_update_args(record,
+                                                             update_fields))]
+
+    """
+
