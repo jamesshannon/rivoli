@@ -22,7 +22,7 @@ MONGO_UPDATE = pymongo.UpdateOne | pymongo.UpdateMany
 
 T = t.TypeVar('T')
 
-def _listify(inp: list[T] | T | None) -> list[T]:
+def _listify(inp: t.Sequence[T] | T | None) -> t.Sequence[T]:
   """ Create a list of T out of a single T, a list of T, or None (removed).
   This is used for accepting a variety of ways of returning T and the output is
   suitable for passing to a list's extend(). None is accepted, but removed.
@@ -30,7 +30,7 @@ def _listify(inp: list[T] | T | None) -> list[T]:
   if inp is None:
     return []
 
-  if not isinstance(inp, list):
+  if not isinstance(inp, t.Sequence):
     return [inp]
 
   # At this point inp must be a single instance of the value but pyright is
