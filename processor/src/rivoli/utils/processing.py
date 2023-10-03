@@ -35,10 +35,10 @@ PROTO_TYPES_CONVERSIONS: ConversionDictType = {
   protos.Function.DICT: _convert_to_dict,
 }
 
-MAP = t.TypeVar('MAP', bound=t.MutableMapping[str, t.Any])
+Map = t.TypeVar('Map', bound=t.MutableMapping[str, t.Any])
 
-def coerce_record_fields(values: MAP,
-    fields: t.Sequence[protos.Function.Field]) -> MAP:
+def coerce_record_fields(values: Map,
+    fields: t.Sequence[protos.Function.Field]) -> Map:
   """ Coerce record fields to the Function's desired type. """
   for field in fields:
     if field.key not in values:

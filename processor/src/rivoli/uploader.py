@@ -196,14 +196,12 @@ class RecordUploader(db_chunk_processor.DbChunkProcessor):
 
     self._uploaded_hashes = set(doc['hash'] for doc in hashes_cursor)
 
-  def _preprocess_record(self, record: protos.Record
-      ) -> t.Optional[helpers.Record]:
+  def _preprocess_record(self, record: protos.Record) -> helpers.Record | None:
     record_h = super()._preprocess_record(record)
     if not record_h:
       return None
 
     step_stat = self._get_step_stat(record.recordType)
-    step_stat.input += 1
 
     if not record_h.record_type.upload:
       # No upload function. Skip this record
@@ -242,9 +240,9 @@ class RecordUploader(db_chunk_processor.DbChunkProcessor):
         self._should_process_records = True
 
       self._current_groupby_value = record_value
-    # Do any necessary coercion
-    uploadFunc = self._functions[record_h.record_type.upload.functionId]
-    record_h = processing.coerce_record_fields(record_h, uploadFunc.fieldsIn)
+    # Do any necessary field coercion
+    fields = self._functions[record_h.record_type.upload.id].fieldsIn
+    record_h.coerce_fields(fields)
 
     return record_h
 

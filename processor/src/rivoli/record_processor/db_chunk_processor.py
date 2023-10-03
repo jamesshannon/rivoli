@@ -265,29 +265,20 @@ def _listify(inp: list[T] | T | None) -> list[T]:
         self._update_file(['status', 'log', 'times', 'stats'])
 
 
-  def _preprocess_record(self, record: protos.Record
-      ) -> t.Optional[helpers.Record]:
+  @abc.abstractmethod
+  def _preprocess_record(self, record: PBR) -> t.Optional[HR]:
     """ Ensure the Record is ready to be processed, return helpers.Record.
     There may be soft failures, where None is returned, or hard failures, where
     an exception is raised.
     This also decides if a batch should be processed immediately.
     """
+
+  def _make_helper_record(self, record: protos.Record) -> helpers.Record:
+    """ Create a Helper Record, do basic checks, and log step stats. """
     recordtype_id = record.recordType
-
-    # Duplicate the record before we make any changes to it
-    record_orig = protos.Record()
-    record_orig.CopyFrom(record)
-
-    # Clear any recent errors for this record
-    del record.recentErrors[:]
 
     step_stat = self._get_step_stat(record.recordType)
     step_stat.input += 1
-
-    if recordtype_id == protos.Record.HEADER:
-      # Don't process the header record
-      # Not technically a failure, though this should have been excluded
-      return None
 
     if recordtype_id not in self.recordtypes_map:
       # This should not happen. `ValueError`s will stop file processing, which
@@ -306,13 +297,7 @@ def _listify(inp: list[T] | T | None) -> list[T]:
       step_stat.failure += 1
       raise ValueError('Record status is invalid for this step')
 
-    # The field values mapping will have a different name depending on the
-    # step (e.g., parsedFields, validatedFields)
-    fields: dict[str, str] = {}
-    if self._fields_field:
-      fields = dict(getattr(record, self._fields_field))
-
-    return helpers.Record(record, record_orig, recordtype, fields,
+    return helpers.Record(record, recordtype, self._fields_field,
         dict(self.file.tags))
 
   @abc.abstractmethod
@@ -335,4 +320,12 @@ def _listify(inp: list[T] | T | None) -> list[T]:
                                                              update_fields))]
 
     """
+  def _preprocess_record(self, record: protos.Record) -> helpers.Record | None:
+    record_h = self._make_helper_record(record)
 
+    if record_h.record_type.id == protos.Record.HEADER:
+      # Don't process the header record
+      # Not technically a failure, though this should have been excluded
+      return None
+
+    return record_h

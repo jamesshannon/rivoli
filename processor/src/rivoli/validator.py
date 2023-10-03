@@ -17,6 +17,8 @@ from rivoli.validation import typing
 from rivoli.utils import processing
 from rivoli.utils import tasks
 
+# pylint: disable=too-few-public-methods
+
 # Disable pyright checks due to Celery
 # pyright: reportFunctionMemberAccess=false
 # pyright: reportUnknownMemberType=false
@@ -180,7 +182,7 @@ class Validator(db_chunk_processor.DbChunkProcessor):
 
         try:
           fields = self._functions[cfg.functionId].fieldsIn
-          record.update(processing.coerce_record_fields(record.data, fields))
+          record.coerce_fields(fields)
 
           validated_fields = self._validate_record(cfg, record)
           ss_record_func.success += 1
