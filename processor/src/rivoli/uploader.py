@@ -51,11 +51,6 @@ class RecordUploader(db_chunk_processor.DbChunkProcessor):
 
     self._set_max_pending_records(self.filetype.uploadBatchSize)
 
-    self._groupby_field = filetype.uploadBatchGroupKey
-    """ Name of the field, if any, that uploads are grouped by. """
-    self._current_groupby_value: t.Optional[str] = None
-    """ Value of the current group's groups-by key. """
-
     self._uploaded_hashes: set[bytes]
     """ Set of hashes of matching successfully-uploaded records. """
     self._chunk_hashes: set[bytes] = set()
@@ -87,16 +82,8 @@ class RecordUploader(db_chunk_processor.DbChunkProcessor):
     self.file.times.uploadingStartTime = bson_format.now()
     self._update_file(['status', 'updated', 'times'])
 
-    # When we're doing batch and there's a groupby key we need to
-    # order by the groupby key. For optimization, we'd ideally have copied that
-    # value into its own field during the ... validation step?
-    kwargs = {}
-    if self._groupby_field:
-      # This will need to be modified if we stop using validatedFields
-      kwargs['sort'] = [(f'validatedFields.{self._groupby_field}', 1)]
-
     self._process_records(
-        self._get_all_records(protos.Record.VALIDATED, False, **kwargs))
+        self._get_all_records(protos.Record.VALIDATED, False))
 
     self._end_upload()
 
@@ -231,15 +218,6 @@ class RecordUploader(db_chunk_processor.DbChunkProcessor):
 
     self._chunk_hashes.add(record.hash)
 
-     # Is this Record the beginning of a new batch?
-    if self._groupby_field:
-      record_value = record_h[self._groupby_field]
-
-      if (self._current_groupby_value
-          and self._current_groupby_value != record_value):
-        self._should_process_records = True
-
-      self._current_groupby_value = record_value
     # Do any necessary field coercion
     fields = self._functions[record_h.record_type.upload.id].fieldsIn
     record_h.coerce_fields(fields)
