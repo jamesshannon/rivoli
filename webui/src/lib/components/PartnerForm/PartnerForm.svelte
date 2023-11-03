@@ -56,7 +56,7 @@
         />
       </Column>
       <Column>
-        <FormLabel>Partner Tags</FormLabel>
+        <FormLabel>Partner Parameters</FormLabel>
         <StringMapping bind:staticTags={partner.staticTags} />
       </Column>
     </Row>

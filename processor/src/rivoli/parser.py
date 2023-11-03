@@ -10,7 +10,7 @@ from rivoli.protobson import bson_format
 from rivoli import protos
 
 from rivoli import db
-from rivoli import record_processor
+from rivoli.record_processor import db_chunk_processor
 from rivoli.utils import tasks
 from rivoli import validator
 from rivoli.function_helpers import helpers
@@ -26,10 +26,8 @@ FieldList = list[t.Tuple[t.Tuple[int, int], str]]
 @tasks.app.task
 def parse(file_id: int) -> None:
   """ Parse a file that's already been loaded into the db. """
-  mydb = db.get_db()
-
   file = bson_format.to_proto(protos.File,
-      mydb.files.find_one({'_id': file_id}))
+      db.get_db().files.find_one({'_id': file_id}))
 
   # get the filetype config
   partner = admin_entities.get_partner(file.partnerId)
@@ -40,7 +38,7 @@ def parse(file_id: int) -> None:
 
   validator.validate.delay(file_id)
 
-class Parser(record_processor.DbChunkProcessor):
+class Parser(db_chunk_processor.DbChunkProcessor):
   """ Generic Parser """
   log_source = protos.ProcessingLog.PARSER
 
@@ -48,6 +46,8 @@ class Parser(record_processor.DbChunkProcessor):
 
   _success_status = protos.File.PARSED
   _error_status = protos.File.PARSE_ERROR
+
+  _record_error_status = protos.Record.PARSE_ERROR
 
   _step_stat_prefix = 'PARSE'
 
@@ -114,8 +114,10 @@ class DelimitedParser(Parser):
         fields: dict[int, str] = {field.columnIndex: field.name for field
                                   in recordtype.fieldTypes if field.active}
         self.fieldnames[recordtype.id] = [None] * max(fields.keys())
+
         for idx, fieldname in fields.items():
-          self.fieldnames[recordtype.id][idx] = fieldname
+          # Field indices entered in UI are 1-based
+          self.fieldnames[recordtype.id][idx - 1] = fieldname
 
       # Add any shared_key(s)
       self.shared_keys[recordtype.id] = [field.name for field
@@ -126,13 +128,13 @@ class DelimitedParser(Parser):
     self._clear_stats('PARSE')
     self.file.times.parsingStartTime = bson_format.now()
 
-    self._process_records(self._get_all_records())
+    self._process_records(self._get_all_records(protos.Record.LOADED))
 
     # Final update to the File record
     self.file.log.append(self._make_log_entry(False, 'Parsed records'))
 
   def _process_record(self, records: list[helpers.Record]
-      ) -> t.Optional[t.Union[pymongo.UpdateOne, pymongo.UpdateMany]]:
+      ) -> t.Sequence[pymongo.UpdateOne]:
     assert len(records) == 1
     record = records[0].updated_record
 
@@ -229,7 +231,7 @@ class FixedWidthParser(Parser):
     return {f[1]: line[f[0][0] : f[0][1]].strip() for f in fields}
 
   def _process_record(self, records: list[helpers.Record]
-      ) -> t.Optional[t.Union[pymongo.UpdateOne, pymongo.UpdateMany]]:
+      ) -> t.Sequence[pymongo.UpdateOne]:
     assert len(records) == 1
     record = records[0].updated_record
 

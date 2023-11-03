@@ -1,23 +1,49 @@
 """ Load file into multiple records. """
+import codecs
 import csv
 import hashlib
 import itertools
 import io
 import pathlib
 import typing as t
-
-from rivoli import protos
-from rivoli.protobson import bson_format
+import unicodedata
 
 from rivoli import admin_entities
-from rivoli import record_processor
+from rivoli import protos
+from rivoli.record_processor import record_processor
 from rivoli import status_scheduler
 from rivoli.function_helpers import exceptions
+from rivoli.protobson import bson_format
+from rivoli.utils import logging
 from rivoli.utils import tasks
 
 # pylint: disable=too-few-public-methods
 
+logger = logging.get_logger(__name__)
+
 LineGenerator = t.Generator[t.Tuple[str, t.Optional[list[str]]], None, None]
+
+BYTE_REPLACEMENTS = {
+  b'\xa0': ' ', # Non-breaking space
+}
+
+def _decode_error_handler(exc: UnicodeError) -> t.Tuple[str, int]:
+  exc = t.cast(UnicodeDecodeError, exc)
+  byt = exc.object[exc.start:exc.end]
+  if byt in BYTE_REPLACEMENTS:
+    return (BYTE_REPLACEMENTS[byt], exc.end)
+
+  # Otherwise log it and return a unicode represenation
+  # This assumes that mongo and -- more importantly -- upstream services can
+  # handle unicode. Maybe a setting to return normalized unicode or a backslash
+  # representation. And maybe have our own unicode normalization map to do
+  # like convert german eszett into ss?
+  escaped = byt.decode('utf8', errors='rivoli_handler')
+  char = unicodedata.normalize('NFKD', byt.decode('unicode_escape'))
+  logger.warning('Found unexpected unicode character %s (%s)', char, escaped)
+  return (char, exc.end)
+
+codecs.register_error('rivoli_handler', _decode_error_handler)
 
 @tasks.app.task
 def load_from_id(file_id: int):
@@ -175,7 +201,8 @@ class DelimitedLoader(Loader):
     """ Open file from the filesystem and confirm file properties. """
     # Get 8k of sample text from the file and use that to try to detect the
     # dialect and existence of a header
-    self.fileobj = open(self.local_file, 'rt', newline='', encoding='UTF-8')
+    self.fileobj = open(self.local_file, 'rt', newline='', encoding='UTF-8',
+                        errors='rivoli_handler')
 
     sample = self.fileobj.read(8192)
     self.fileobj.seek(0)
@@ -277,7 +304,8 @@ class FixedWidthLoader(Loader):
     self._begin_processing()
 
     # Equivalent of _open_and_validate_file()
-    self.fileobj = open(self.local_file, 'rt', encoding='UTF-8')
+    self.fileobj = open(self.local_file, 'rt', encoding='UTF-8',
+                        errors='rivoli_handler')
 
     # Equivalent of _process_csv_file()
     self._create_db_records(self._raw_lines(self.fileobj))

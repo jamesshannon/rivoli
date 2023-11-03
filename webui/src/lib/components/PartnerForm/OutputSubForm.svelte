@@ -125,7 +125,7 @@
       </Column>
     </Row>
     <Row>
-      <Column>
+      <Column />
       <Column>
         <MultiSelect
           titleText="Failed Functions"

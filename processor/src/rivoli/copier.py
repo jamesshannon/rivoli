@@ -34,8 +34,13 @@ def setup_scan_tasks():
 @tasks.app.task
 def scan(partner_id: str):
   """ Search for new files for a partner and set them up for processing. """
-  input_dir = FILES_BASE_DIR / 'input'
   dest_dir = FILES_BASE_DIR / 'processed'
+
+  # Use configured input_dir or default to base_dir/input
+  if config.get('FILES_INPUT', strict=False):
+    input_dir = pathlib.Path(config.get('FILES_INPUT'))
+  else:
+    input_dir = FILES_BASE_DIR / 'input'
 
   input_dir.mkdir(parents=True, exist_ok=True)
   dest_dir.mkdir(parents=True, exist_ok=True)
@@ -94,8 +99,6 @@ class Copier(abc.ABC):
                   ) -> protos.File:
     """ Create a file record with metadata and rename local file. """
     # Get a seqential ID. We do this to keep the ID small for the Record rows
-    mydb = db.get_db()
-
     file_id = db.get_next_id('files')
 
     # Copy the tags from the Partner and the FileType
@@ -134,11 +137,10 @@ class Copier(abc.ABC):
         message='File Created'))
 
     # Get # of lines from the file
-    line_count = sum(1 for _
-        in open(local_file, 'r', encoding='UTF-8').readlines())
-    file.stats.approximateRows = line_count
+    with open(local_file, 'r', encoding='UTF-8', errors='surrogateescape') as fobj:
+      file.stats.approximateRows = sum(1 for _ in fobj)
 
-    mydb.files.insert_one(bson_format.from_proto(file))
+    db.get_db().files.insert_one(bson_format.from_proto(file))
 
     new_name = self._file_longterm_name(orig_file, file_id)
     local_file.rename(local_file.with_name(new_name))

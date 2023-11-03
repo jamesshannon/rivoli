@@ -91,11 +91,11 @@
     doFileAction({ action: 'EXECUTE_REPORT', outputId: evt.detail.outputId });
   }
 
-  async function approveFileUploading() {
+  async function approveFileUploading(limit?: number | undefined) {
     // Make request ot server to update the file status and schedule
     // processing. In the future this might need to be abstracted to handle
     // different statuses.
-    doFileAction({ action: 'APPROVE_UPLOAD' });
+    doFileAction({ action: 'APPROVE_UPLOAD', limit: limit });
   }
 
   async function revertRecordStatuses(evt: CustomEvent) {
@@ -145,7 +145,8 @@
 <div class="local">
   <StatusTag {file} />
   {#if file.status == File_Status.WAITING_APPROVAL_TO_UPLOAD}
-    <Button on:click={approveFileUploading}>Upload Records</Button>
+    <Button on:click={() => approveFileUploading()}>Upload Records</Button>
+    <Button on:click={() => approveFileUploading(1)}>Upload ONE Record</Button>
   {/if}
 </div>
 

@@ -28,6 +28,7 @@ message Function {
   bool isSystem = 7;
   repeated string partnerId = 8;
 
+
   oneof functionStatement {
     string pythonFunction = 9;
     string jsFunction = 10;
@@ -37,10 +38,17 @@ message Function {
 
   //string serviceId = 5;
   repeated string tags = 15;
-  // repeated string fieldsIn = 16;
-  // repeated string fieldsOut = 17;
+
+  repeated Field fieldsIn = 16;
+  repeated Field fieldsOut = 17;
 
   repeated Parameter parameters = 13;
+
+  message Field {
+    string key = 1;
+    DataType type = 2;
+    bool isOutputEphemeral = 3;
+  }
 
   message ApiEndpoint {
 
@@ -87,6 +95,8 @@ message Function {
     STRING = 3;
     BOOLEAN = 4;
     ENUM = 5;
+    DICT = 6;
+    DATE = 7;
   }
 }
 

@@ -85,9 +85,9 @@ def record_validation(cfg: protos.FunctionConfig,
   return t.cast(typing.ValRecordReturn, result)
 
 def record_upload(cfg: protos.FunctionConfig, function_msg: protos.Function,
-    record: helpers.Record) -> str:
-  """ Upload a record, probably via an API. """
-  result = _call_python_function(cfg, function_msg, record)
+    records: list[helpers.Record]) -> str:
+  """ Upload a single record, probably via an API. """
+  result = _call_python_function(cfg, function_msg, records[0])
 
   return str(result)
 

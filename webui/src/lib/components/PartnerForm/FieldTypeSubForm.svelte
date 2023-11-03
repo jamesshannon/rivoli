@@ -45,7 +45,7 @@
 
       if (format === FileType_Format.FLAT_FILE_DELIMITED && hasHeader
           && fieldtype.fieldLocation.case !== 'headerColumn') {
-        fieldtype.fieldLocation = { case: 'headerColumn', value: '' };;
+        fieldtype.fieldLocation = { case: 'headerColumn', value: '' };
       } else if (format === FileType_Format.FLAT_FILE_DELIMITED && !hasHeader
           && fieldtype.fieldLocation.case !== 'columnIndex') {
         fieldtype.fieldLocation = { case: 'columnIndex', value: 0 };
@@ -91,7 +91,11 @@
           />
         {:else if fieldtype.fieldLocation.case === 'columnIndex'}
           <!-- Delimited Without Header -->
-          <NumberInput hideSteppers label="Header Column Index" min={1} />
+          <NumberInput
+            hideSteppers
+            label="Header Column Index"
+            min={1}
+            bind:value={fieldtype.fieldLocation.value} />
         {:else if fieldtype.fieldLocation.case === 'charRange'}
           <!-- Fixed-width -->
           <NumberInput label="Start" min={1} bind:value={fieldtype.fieldLocation.value.start} />

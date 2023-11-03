@@ -115,7 +115,7 @@
       </Row>
       <Row>
         <Column>
-          <FormLabel>File Type Tags</FormLabel>
+          <FormLabel>File Type Parameters</FormLabel>
           <StringMapping bind:staticTags={filetype.staticTags} />
         </Column>
         <Column>
@@ -163,7 +163,7 @@
           Filenames are detected and copied based on their filename.
           Additionally, you can parse the filename (using regexp patterns) to
           calculate file-level values, including parsing the file date from the
-          filename and arbitary tags.
+          filename and arbitary parameters.
         </Row>
         <Row>
           <Column>

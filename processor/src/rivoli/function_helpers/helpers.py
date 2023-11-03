@@ -12,8 +12,16 @@ import typing as t
 
 from rivoli import protos
 from rivoli.function_helpers import exceptions
+from rivoli.utils import processing
 
 TCallable = t.TypeVar("TCallable", bound=t.Callable)
+
+class DataType(enum.Enum):
+  """ Parameter types """
+  STRING = protos.Function.STRING
+  INTEGER = protos.Function.INTEGER
+  FLOAT = protos.Function.FLOAT
+  DICT = protos.Function.DICT
 
 class FunctionType(enum.Enum):
   """ Function types """
@@ -27,7 +35,7 @@ class Field(t.NamedTuple):
   """ Fields are part of the Record and passed between functions. """
   key: str
   """ Key within the record. """
-  typ: str
+  typ: DataType = DataType.STRING
   """ Expected type. Data will be coerced, if possible. """
   out_ephemeral: bool = False
   """ Output fields only: This is an ephemeral field; delete after validation.
@@ -38,25 +46,52 @@ class Record(collections.UserDict[str, t.Any]):
   The key/values are imported from the file, and possibly modified in prior
   steps.
   """
-  def __init__(self, update_record: protos.Record, orig_record: protos.Record,
-      record_type: protos.RecordType, data: dict[str, str],
-      tags: dict[str, str]):
-    super().__init__(data)
+  def __init__(self, record: protos.Record, record_type: protos.RecordType,
+      fields_field: str | None, file_tags: dict[str, str]):
+    super().__init__()
 
-    self.id = update_record.id # pylint: disable=invalid-name
+    self.id = record.id # pylint: disable=invalid-name
     """ Rivoli Record ID """
-    self.updated_record = update_record
+    self.updated_record = record
     """ Raw Record message """
 
-    self.orig_record = orig_record
+    self.orig_record = protos.Record()
     """ Raw Record message """
 
     self.record_type = record_type
     """ Detected RecordType message for this Record """
-    self.tags = tags
+    self.tags = file_tags
     """ Dict of parsed tags from Partner + File """
 
-  def __bool__(self):
+    # Duplicate the record (which is now a reference to updated_record) to the
+    # orig_record property
+    self.orig_record.CopyFrom(record)
+
+    # Now that orig_record is a copy, make modifications to updated_record
+    del self.updated_record.recentErrors[:]
+
+    # The field values mapping will have a different name depending on the
+    # step (e.g., parsedFields, validatedFields)
+    if fields_field:
+      self.update(dict(getattr(record, fields_field)))
+
+  def coerce_fields(self, fields: t.Sequence[protos.Function.Field]) -> None:
+    """ Coerce the fields to the Function's desired type. """
+    self.update(processing.coerce_record_fields(self, fields))
+
+  def get_record_or_tag(self, key: str) -> str:
+    """ Get item from record and fall back to the partner + file tags.
+    Returns KeyError if key is not found in either.
+    """
+    try:
+      return self[key]
+
+    except KeyError:
+      pass
+
+    return self.tags[key]
+
+  def __bool__(self) -> bool:
     return True
 
 def register_func(function_type: FunctionType, deprecated: bool = False,

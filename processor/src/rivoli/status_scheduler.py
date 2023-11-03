@@ -1,4 +1,6 @@
 """ Moves Files between statuses, schedules next steps as needed. """
+import typing as t
+
 from rivoli import db
 from rivoli import admin_entities
 from rivoli import protos
@@ -20,15 +22,16 @@ logger = logging.get_logger(__name__)
 # pyright: reportUnknownMemberType=false
 
 @tasks.app.task
-def next_step_id(file_id: int) -> None:
+def next_step_id(file_id: int, **kwargs: t.Any) -> None:
   """ Move file to next step using just the File ID.
   This will be almost exclusively used as a Celery task (called from the front-
   end); otherwise the File and FileType should be available.
   """
   file, _, filetype = admin_entities.get_file_entities(file_id)
-  next_step(file, filetype)
+  next_step(file, filetype, **kwargs)
 
-def next_step(file: protos.File, file_type: protos.FileType) -> None:
+def next_step(file: protos.File, file_type: protos.FileType, **kwargs: t.Any
+    ) -> None:
   """ Move file to the next step.
   For the most part this will simply create a Celery task based on the current
   status, but the task might differ based on current status + FileType
@@ -45,13 +48,13 @@ def next_step(file: protos.File, file_type: protos.FileType) -> None:
     _next_step_parsed(file)
 
   elif file.status in (protos.File.VALIDATED, protos.File.APPROVED_TO_UPLOAD):
-    _next_step_validated(file, file_type)
+    _next_step_validated(file, file_type, **kwargs)
 
   elif file.status in (protos.File.UPLOADED, ):
     _next_step_uploaded(file, file_type)
 
   elif file.status in (protos.File.REPORTING, ):
-    # A report has been finished
+    # A (single) report has been finished
     _next_step_reporting(file, file_type)
 
   else:
@@ -84,7 +87,8 @@ def _next_step_parsed(file: protos.File) -> None:
   _log_next_step(file, 'validation')
   validator.validate.delay(file.id)
 
-def _next_step_validated(file: protos.File, file_type: protos.FileType) -> None:
+def _next_step_validated(file: protos.File, file_type: protos.FileType,
+    **kwargs: t.Any) -> None:
   """ Schedule record uploading, or pause. """
   # decide what to do next.
   # aggregating if there are aggregation steps
@@ -95,7 +99,7 @@ def _next_step_validated(file: protos.File, file_type: protos.FileType) -> None:
   # Always start uploading if the status is APPROVED
   if file.status == protos.File.APPROVED_TO_UPLOAD:
     _log_next_step(file, 'uploading')
-    uploader.upload.delay(file.id)
+    uploader.upload.delay(file.id, **kwargs)
     return
 
   has_errors = file.stats.validatedRecordsError > 0

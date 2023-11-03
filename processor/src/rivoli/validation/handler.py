@@ -13,9 +13,8 @@ HANDLER_MODULE_MAP: dict[str, types.ModuleType] = {
 }
 
 def call_function(function_type: protos.Function.FunctionType,
-    cfg: protos.FunctionConfig,
-    function: protos.Function, *args: t.Any, **kwargs: t.Any,
-    ) -> typing.ValReturn:
+    cfg: protos.FunctionConfig, function: protos.Function,
+    *args: t.Any, **kwargs: t.Any) -> typing.ValReturn:
   """ Execute a "function" through a handler and return the value.
   Functions could be python functions, SQL statements, etc, and are configured
   in the Function message. The expected arguments and return value will be
@@ -27,7 +26,9 @@ def call_function(function_type: protos.Function.FunctionType,
   signatures:
     FIELD_VALIDATION: [value: str] -> str
     RECORD_VALIDATION: [value: Record] -> dict[str, str] | Record | None
-    RECORD_UPLOAD: [value: Record] -> str
+    RECORD_UPLOAD: [value: list[Record]] -> str
+      NB: The function itself expects a single Record so it's the handler's
+      responsibility to break that out.
     RECORD_UPLOAD_BATCH: [value: list[Record]] -> str
   See `typing` for more information.
   All functions can raise a ValidationError, ExecutionError,

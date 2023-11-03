@@ -13,7 +13,7 @@ from rivoli import admin_entities
 from rivoli import config
 from rivoli import db
 from rivoli import protos
-from rivoli import record_processor
+from rivoli.record_processor import db_chunk_processor
 from rivoli import status_scheduler
 from rivoli.function_helpers import helpers
 from rivoli.protobson import bson_format
@@ -73,7 +73,7 @@ def _fvals_original_columns(record: protos.Record) -> list[str]:
   return list(record.rawColumns)
 
 
-class Reporter(record_processor.DbChunkProcessor):
+class Reporter(db_chunk_processor.DbChunkProcessor):
   """ Base class to create processing reports. """
   log_source = protos.ProcessingLog.REPORTER
 

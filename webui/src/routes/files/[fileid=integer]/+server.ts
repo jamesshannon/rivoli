@@ -25,7 +25,7 @@ export async function POST({ params, request }) {
   if (reqBody.action === 'REVERT_RECORDS') {
     responseP = handlePostRequestRevertRecords(fileId, reqBody);
   } else if (reqBody.action === 'APPROVE_UPLOAD') {
-    responseP = handlePostApproveUpload(fileId);
+    responseP = handlePostApproveUpload(fileId, reqBody);
   } else if (reqBody.action === 'EXECUTE_REPORT') {
     responseP = handlePostExecuteReport(fileId, reqBody);
   } else {

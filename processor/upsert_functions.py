@@ -10,13 +10,6 @@ from rivoli import db
 from rivoli.protobson import bson_format
 from rivoli import protos
 
-PYTHON_INSPECT_TYPE_MAP = {
-  'str': protos.Function.STRING,
-  'int': protos.Function.INTEGER,
-  'float': protos.Function.FLOAT,
-  'bool': protos.Function.BOOLEAN,
-}
-
 def parse_args() -> argparse.Namespace:
   """ Argparser for this file. """
   parser = argparse.ArgumentParser()

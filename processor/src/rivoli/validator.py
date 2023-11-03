@@ -8,13 +8,16 @@ from rivoli import admin_entities
 from rivoli.protobson import bson_format
 from rivoli import protos
 from rivoli import db
-from rivoli import record_processor
+from rivoli.record_processor import db_chunk_processor
 from rivoli import status_scheduler
 from rivoli.function_helpers import exceptions
 from rivoli.function_helpers import helpers
 from rivoli.validation import handler
 from rivoli.validation import typing
+from rivoli.utils import processing
 from rivoli.utils import tasks
+
+# pylint: disable=too-few-public-methods
 
 # Disable pyright checks due to Celery
 # pyright: reportFunctionMemberAccess=false
@@ -37,7 +40,7 @@ def validate(file_id: int) -> None:
 
   status_scheduler.next_step(file, filetype)
 
-class Validator(record_processor.DbChunkProcessor):
+class Validator(db_chunk_processor.DbChunkProcessor):
   """ Class to validate records.
   No need to subclass this as validation will not differ by file type. """
   log_source = protos.ProcessingLog.VALIDATOR
@@ -58,6 +61,9 @@ class Validator(record_processor.DbChunkProcessor):
 
     self.errors: list[protos.ProcessingLog] = []
     """ Accumulation of a Record's errors. """
+
+    self._functions: dict[str, protos.Function] = {}
+    self._all_fields: list[protos.Function.Field] = []
 
     self._field_name_ids: dict[str, str] = {}
     """ Map of field names to field IDs. """
@@ -93,6 +99,8 @@ class Validator(record_processor.DbChunkProcessor):
           function_ids.add(validation.functionId)
 
     self._functions = admin_entities.get_functions_by_ids(function_ids)
+    self._all_fields = [field for func in self._functions.values()
+                        for field in func.fieldsOut]
 
     self._clear_stats('VALIDATE')
     del self.file.validatedColumns[:]
@@ -113,7 +121,7 @@ class Validator(record_processor.DbChunkProcessor):
   # Will also need an entrypoint to call this so that the UI can try to
   # (re-)validate a Record after a manual edit
   def _process_record(self, records: list[helpers.Record]
-      ) -> t.Optional[pymongo.UpdateOne]:
+      ) -> t.Sequence[pymongo.UpdateOne]:
     assert len(records) == 1
     record = records[0]
     raw_record = record.updated_record
@@ -173,6 +181,9 @@ class Validator(record_processor.DbChunkProcessor):
         ss_record_func.input += 1
 
         try:
+          fields = self._functions[cfg.functionId].fieldsIn
+          record.coerce_fields(fields)
+
           validated_fields = self._validate_record(cfg, record)
           ss_record_func.success += 1
         except Exception as exc: # pylint: disable=broad-exception-caught
@@ -191,16 +202,16 @@ class Validator(record_processor.DbChunkProcessor):
         record.clear()
         record.update(validated_fields)
 
-
     # Previously we only set validatedFields if there were no errors, but
     # it's helpful to see the values from previous validation steps
 
     # Clear the *record*-level field values, in case we're revalidating
     record.updated_record.validatedFields.clear()
 
-    # Coerce all the fields to strings, in case they aren't
-    record.updated_record.validatedFields.update({key: str(val) for key, val
-                                              in validated_fields.items()})
+    record.updated_record.validatedFields.update(
+        processing.prep_record_fields_for_db(validated_fields,
+                                             self._all_fields))
+
     # Update the field keys dict -- values will be overwritten and then
     # ignored
     self._validated_field_keys.update(validated_fields)
@@ -237,6 +248,7 @@ class Validator(record_processor.DbChunkProcessor):
     # exception (with the record).
     if file_exception:
       file_exception.update = update # pyright: ignore[reportGeneralTypeIssues]
+      file_exception.rivoli_record_id = record.id # pyright: ignore[reportGeneralTypeIssues]
       raise file_exception
 
     return update

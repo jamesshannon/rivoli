@@ -8,21 +8,20 @@ from rivoli.protobson import bson_format
 from rivoli import admin_entities
 from rivoli import db
 from rivoli import protos
-from rivoli import record_processor
+from rivoli.record_processor import db_chunk_processor
 from rivoli import status_scheduler
 from rivoli.utils import tasks
+from rivoli.utils import processing
 from rivoli.validation import handler
 from rivoli.function_helpers import exceptions
 from rivoli.function_helpers import helpers
 
-mydb = db.get_db()
-
 def get_file(file_id: int) -> protos.File:
   return bson_format.to_proto(protos.File,
-      mydb.files.find_one({'_id': file_id}))
+      db.get_db().files.find_one({'_id': file_id}))
 
 @tasks.app.task
-def upload(file_id: int) -> None:
+def upload(file_id: int, limit: t.Optional[int] = None) -> None:
   file = db.get_one_by_id('files', file_id, protos.File)
 
   # get the partner and filetype info
@@ -30,17 +29,16 @@ def upload(file_id: int) -> None:
   filetype = admin_entities.get_filetype(file.fileTypeId)
 
   uploader = RecordUploader(file, partner, filetype)
-  uploader.process()
+  uploader.process(limit)
 
   status_scheduler.next_step(file, filetype)
 
-class RecordUploader(record_processor.DbChunkProcessor):
+class RecordUploader(db_chunk_processor.DbChunkProcessor):
   """ Class to upload records. """
   log_source = protos.ProcessingLog.UPLOADER
   _fields_field = 'validatedFields'
   _only_process_record_status = protos.Record.VALIDATED
 
-  _success_status = protos.File.UPLOADED
   _error_status = protos.File.UPLOAD_ERROR
 
   _record_error_status = protos.Record.UPLOAD_ERROR
@@ -53,11 +51,6 @@ class RecordUploader(record_processor.DbChunkProcessor):
 
     self._set_max_pending_records(self.filetype.uploadBatchSize)
 
-    self._groupby_field = filetype.uploadBatchGroupKey
-    """ Name of the field, if any, that uploads are grouped by. """
-    self._current_groupby_value: t.Optional[str] = None
-    """ Value of the current group's groups-by key. """
-
     self._uploaded_hashes: set[bytes]
     """ Set of hashes of matching successfully-uploaded records. """
     self._chunk_hashes: set[bytes] = set()
@@ -66,6 +59,8 @@ class RecordUploader(record_processor.DbChunkProcessor):
     # Retriable count is not part of the file.stats, so we track separately
     self._retriable_record_cnt = 0
     """ Numer of retriable from this run. """
+
+    self._functions: dict[str, protos.Function] = {}
 
   def _process(self):
     """ Upload the records. """
@@ -87,16 +82,8 @@ class RecordUploader(record_processor.DbChunkProcessor):
     self.file.times.uploadingStartTime = bson_format.now()
     self._update_file(['status', 'updated', 'times'])
 
-    # When we're doing batch and there's a groupby key we need to
-    # order by the groupby key. For optimization, we'd ideally have copied that
-    # value into its own field during the ... validation step?
-    kwargs = {}
-    if self._groupby_field:
-      # This will need to be modified if we stop using validatedFields
-      kwargs['sort'] = [(f'validatedFields.{self._groupby_field}', 1)]
-
     self._process_records(
-        self._get_all_records(protos.Record.VALIDATED, False, **kwargs))
+        self._get_all_records(protos.Record.VALIDATED, False))
 
     self._end_upload()
 
@@ -159,9 +146,18 @@ class RecordUploader(record_processor.DbChunkProcessor):
     # Uploading is finished. What's the next step?
     # For now the file goes to completed. In the future we might move to a
     # COORECT_ERRORS state or something
-    self.file.status = protos.File.COMPLETED
-    self.file.times.uploadingEndTime = bson_format.now()
-    self.file.log.append(self._make_log_entry(False, 'Uploaded records'))
+    if self._file_complete:
+      self.file.status = protos.File.UPLOADED
+      self.file.times.uploadingEndTime = bson_format.now()
+      log_msg = 'Uploaded records -- file complete'
+    else:
+      # If file wasn't complete but we're here then processing must be finished
+      # for some other reason (like a limit). There will be other reasons (like
+      # a temporary pause) but for now we use the RESTARTING enum
+      self.file.status = protos.File.UPLOADING_RESTARTING
+      log_msg = 'Uploaded records -- file not complete'
+
+    self.file.log.append(self._make_log_entry(False, log_msg))
     self._update_file(['status', 'log', 'times', 'stats'])
 
   def _retry_retriable_records(self):
@@ -170,8 +166,8 @@ class RecordUploader(record_processor.DbChunkProcessor):
 
     # 1) If pause, then set status and create a new task immediately
     # 1) Retry records, then set to retry_pause and create a new task
-    # 2) Set to "pause" then create a new task
-    # or 3) set to done and end task
+    # 2) Set to "pause" then create a new task, or
+    # 3) set to done and end task
 
   def _preprocess_chunk(self, records: list[protos.Record]) -> None:
     """ Pre-process the chunk of records and look for duplicates.
@@ -187,14 +183,12 @@ class RecordUploader(record_processor.DbChunkProcessor):
 
     self._uploaded_hashes = set(doc['hash'] for doc in hashes_cursor)
 
-  def _preprocess_record(self, record: protos.Record
-      ) -> t.Optional[helpers.Record]:
+  def _preprocess_record(self, record: protos.Record) -> helpers.Record | None:
     record_h = super()._preprocess_record(record)
     if not record_h:
       return None
 
     step_stat = self._get_step_stat(record.recordType)
-    step_stat.input += 1
 
     if not record_h.record_type.upload:
       # No upload function. Skip this record
@@ -205,8 +199,8 @@ class RecordUploader(record_processor.DbChunkProcessor):
       return None
 
     if record.uploadConfirmationId:
-      # This should not happen, but since we the parent method already filtered
-      # on status then something might be wrong internally
+      # This should not happen, since the calling method already filtered
+      # on status. If this happens then something might be wrong internally
       step_stat.failure += 1
       self.file.stats.uploadedRecordsError += 1
       raise ValueError('uploadConfirmationId is not empty')
@@ -224,22 +218,22 @@ class RecordUploader(record_processor.DbChunkProcessor):
 
     self._chunk_hashes.add(record.hash)
 
-     # Is this Record the beginning of a new batch?
-    if self._groupby_field:
-      record_value = record_h[self._groupby_field]
-
-      if (self._current_groupby_value
-          and self._current_groupby_value != record_value):
-        self._should_process_records = True
-
-      self._current_groupby_value = record_value
+    # Do any necessary field coercion
+    fields = self._functions[record_h.record_type.upload.id].fieldsIn
+    record_h.coerce_fields(fields)
 
     return record_h
 
   def _process_record(self, records: list[helpers.Record]
-      ) -> t.Optional[pymongo.UpdateMany]:
+      ) -> pymongo.UpdateMany:
     # A batch should never have more than one unique RecordType
+    num_record_types = len({r.record_type.id for r in records})
+    if num_record_types > 1:
+      raise exceptions.ConfigurationError(
+          f'Batch has {num_record_types} unique record types')
+
     record_type = records[0].record_type
+
     # Get the upload function for this RecordType
     upload_func = self._functions[record_type.upload.functionId]
 
@@ -256,10 +250,9 @@ class RecordUploader(record_processor.DbChunkProcessor):
     # a single Record.
 
     # We could have a) batch records + batch function, b) single record + single
-    # function, or c) single record + batch function. (A) and (C) expect lists
-    # while (B) expects a single helpers.Record
-    # Value could be a list or a single Record
-    value: t.Union[list[helpers.Record], helpers.Record] = records
+    # function, or c) single record + batch function. Functions for (A) and (C)
+    # expect list while (B) expects a single record, but the Python handlers
+    # take a list and will pass along a single record in the case of (B).
 
     if upload_func.type == protos.Function.RECORD_UPLOAD:
       # Assert that this is not (d) -- batch record + single function
@@ -272,9 +265,6 @@ class RecordUploader(record_processor.DbChunkProcessor):
         raise exceptions.ConfigurationError(
             f'Not in batch mode but got {len(records)} records')
 
-      # Set the value to the first (and only) record
-      value = records[0]
-
     # If this is a batch update then we need a single representative record
     # from which to set the fields and create the changes. If this is a
     # non-batch update then we could use the actual Record message though we
@@ -285,7 +275,7 @@ class RecordUploader(record_processor.DbChunkProcessor):
     try:
       # Let the configured function type determine what the handler does
       response = handler.call_function(upload_func.type, record_type.upload,
-          upload_func, value)
+          upload_func, records)
 
       # Success
       a_record.status = protos.Record.UPLOADED

@@ -1,13 +1,7 @@
 import { json } from '@sveltejs/kit';
 
 import {
-  handlePostApproveUpload,
-  handlePostExecuteReport
-} from '$lib/helpers/file_processing/server_apis/file';
-import {
-  getRequestRecords,
-  handleGetRequestOutputRecords,
-  handlePostRequestRevertRecords
+  getRequestRecords
 } from '$lib/helpers/file_processing/server_apis/records';
 
 export async function GET({ url, params }) {

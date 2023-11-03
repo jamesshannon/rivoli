@@ -66,7 +66,7 @@ def raise_config_error(
       try:
         return func(*args, **kwargs)
       except python_exceptions as exc:
-        msg = (f'Could not find key {exc} while executing {func.__name__}.'
+        msg = (f'Could not find key {exc} while executing {func.__name__}. '
                'This is likely a configuration error.')
         raise ConfigurationError(msg) # pylint: disable=raise-missing-from
 
@@ -84,7 +84,7 @@ def raise_validation_error(
       try:
         return func(*args, **kwargs)
       except python_exceptions as exc:
-        msg = f'Could not find key {exc} while executing {func.__name__}.'
+        msg = f'Could not find key {exc} while executing {func.__name__}. '
         raise ValidationError(msg) # pylint: disable=raise-missing-from
 
     return wrapped_f # pyright: ignore[reportGeneralTypeIssues]

@@ -6,11 +6,9 @@ from rivoli.protobson import bson_format
 from rivoli import db
 from rivoli import protos
 
-DB = db.get_db()
-
 def get_all_partners() -> dict[str, protos.Partner]:
   """ Get mapping of all Partners by Partner ID. """
-  cursor = DB.partners.find()
+  cursor = db.get_db().partners.find()
   return {partner.id: partner for partner in
           [bson_format.to_proto(protos.Partner, doc) for doc in cursor]}
 
@@ -33,7 +31,7 @@ def get_functions_by_ids(function_ids: t.Iterable[str]
     ) -> dict[str, protos.Function]:
   """ Get mapping of functions from function IDs. """
   fltr = {'_id': {'$in': list(function_ids)}}
-  cursor = DB.functions.find(fltr)
+  cursor = db.get_db().functions.find(fltr)
   return {function.id: function for function in
           [bson_format.to_proto(protos.Function, doc) for doc in cursor]}
 
